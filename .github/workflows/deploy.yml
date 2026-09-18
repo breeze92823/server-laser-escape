@@ -29,7 +29,8 @@ jobs:
 
       - name: Upload to Bloxity
         run: |
-          curl -f -X POST \
+          curl -sS -X POST \
             -H "Authorization: Bearer ${{ secrets.BLOXITY_UPLOAD_TOKEN }}" \
             -F "file=@build.zip" \
+            -w "\nHTTP status: %{http_code}\n" \
             "${{ secrets.BLOXITY_UPLOAD_URL }}"
