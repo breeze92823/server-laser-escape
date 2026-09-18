@@ -27,10 +27,20 @@ jobs:
         run: cd dist && zip -r ../build.zip . && cd ..
         # change "dist" to your actual Vite build output dir if different
 
+      - name: Determine deploy channel
+        id: channel
+        run: |
+          if [ "${{ github.ref_name }}" = "main" ]; then
+            echo "channel=prod" >> "$GITHUB_OUTPUT"
+          else
+            echo "channel=dev" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Upload to Bloxity
         run: |
-          curl -sS -X POST \
+          curl -sS -f -X POST \
+            "https://api.bloxity.io/v1/hosting/games/laser-to-escape/frontend?channel=${{ steps.channel.outputs.channel }}&version=${{ github.sha }}" \
             -H "Authorization: Bearer ${{ secrets.BLOXITY_UPLOAD_TOKEN }}" \
-            -F "file=@build.zip" \
-            -w "\nHTTP status: %{http_code}\n" \
-            "${{ secrets.BLOXITY_UPLOAD_URL }}"
+            -H "Content-Type: application/zip" \
+            --data-binary @build.zip \
+            -w "\nHTTP status: %{http_code}\n"
