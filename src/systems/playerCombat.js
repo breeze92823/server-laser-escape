@@ -12,7 +12,7 @@ import { remotePlayers, sendPlayerDamage } from './net.js'
 import { strikeWall } from './wallHealth.js'
 import { isInPvpZone } from '../data/pvpZone.js'
 import { REMOTE_BODY } from '../data/net.js'
-import { PVP_DAMAGE_PER_HIT, PVP_HIT_RADIUS, PVP_AIM_ASSIST_TAN } from '../data/playerHealth.js'
+import { PVP_DAMAGE_PER_HIT } from '../data/playerHealth.js'
 
 const R = REMOTE_BODY.RADIUS
 const H = REMOTE_BODY.HEIGHT
@@ -109,23 +109,17 @@ export function step() {
     if (!e.present || e.alpha < 0.5 || e.dead || e.hp <= 0) continue
     if (!isInPvpZone(e.rx, e.rz)) continue
 
-    // Hit radius widens with range (data/playerHealth.js PVP_AIM_ASSIST_TAN)
-    // rather than staying fixed: the same small aim slip is centimetres up
-    // close and metres at range. Sized off the straight-line distance to the
-    // player's own position (not the eventual intersection point — that
-    // would be circular) purely to pick a radius; it never affects whether
-    // the shot is actually blocked, that's rayCapsuleEntry's job below.
-    const dist = Math.hypot(e.rx - ox, e.ry + H / 2 - oy, e.rz - oz)
-    const effRadius = Math.max(PVP_HIT_RADIUS, dist * PVP_AIM_ASSIST_TAN)
-
     // bestT (not envDist) as maxT: a closer player found earlier this loop
     // shrinks the search range for every player checked after them, same
-    // early-out envDist itself already gave over "unbounded ray".
+    // early-out envDist itself already gave over "unbounded ray". Radius is
+    // the remote's actual rendered body radius (R) — no distance-widened aim
+    // assist: that used to let shots landing metres wide of the character
+    // still register as hits at range, which read as "damaged by nothing".
     const t = rayCapsuleEntry(
       ox, oy, oz, dx, dy, dz,
       e.rx, e.ry + R, e.rz,
       e.rx, e.ry + H - R, e.rz,
-      effRadius, bestT,
+      R, bestT,
     )
     if (t > 0.01 && t < bestT) {
       bestT = t
