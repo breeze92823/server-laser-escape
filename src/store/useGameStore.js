@@ -8,6 +8,8 @@ import {
   REBIRTH_MIN,
   REBIRTH_MAX,
   WINS_INITIAL,
+  WINS_MIN,
+  WINS_MAX,
   POWER_PER_ACTION_INITIAL,
   levelForPower,
   canAcceptRebirth,
@@ -147,5 +149,41 @@ export const useGameStore = create((set, get) => ({
     const state = get()
     if (!state.ownedAuras.has(index)) return
     set({ equippedAura: index })
+  },
+
+  // Called once from systems/net.js when the server's `progress` message
+  // arrives (server-laser-escape ArenaRoom.ts loadProgress(), the saved doc
+  // for this signed-in player's Bloxity user id). Only ever runs at most once
+  // per room attach, right after join — never merges into an already-playing
+  // session, so a slow load can't stomp progress the player made in the few
+  // seconds before it arrived. Numbers are re-clamped exactly like every
+  // other write path (gainPower, buyHexPad, ...) rather than trusted as-is,
+  // since this round-tripped through the network and, before that, whatever
+  // this same client last saved.
+  hydrate(saved) {
+    if (!saved || typeof saved !== 'object') return
+    set((s) => {
+      const power = clamp(Number(saved.power) || 0, POWER_MIN, POWER_MAX)
+      const rebirth = clamp(Number(saved.rebirth) || 0, REBIRTH_MIN, REBIRTH_MAX)
+      const wins = clamp(Number(saved.wins) || 0, WINS_MIN, WINS_MAX)
+      const ownedHexPads = new Set(
+        Array.isArray(saved.ownedHexPads) && saved.ownedHexPads.length ? saved.ownedHexPads : [0],
+      )
+      const equippedHexPad = ownedHexPads.has(saved.equippedHexPad) ? saved.equippedHexPad : 0
+      const ownedAuras = new Set(Array.isArray(saved.ownedAuras) ? saved.ownedAuras : [])
+      const equippedAura = ownedAuras.has(saved.equippedAura) ? saved.equippedAura : null
+      const tier = HEX_POWER_PAD_TIERS[equippedHexPad]
+      return derive({
+        ...s,
+        power,
+        rebirth,
+        wins,
+        ownedHexPads,
+        equippedHexPad,
+        powerPerAction: tier ? tier.powerPerAction : s.powerPerAction,
+        ownedAuras,
+        equippedAura,
+      })
+    })
   },
 }))

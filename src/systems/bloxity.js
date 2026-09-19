@@ -161,6 +161,19 @@ function readGuest() {
   }
 }
 
+// Stable Bloxity user id for a signed-in player, keying their server-side save
+// (see systems/net.js progressPayload()). Same `_id` shape already used for a
+// friend entry (components/hud/FriendsPanel.jsx); `id`/`userId` are read too
+// in case the SDK's own user object names it differently. Empty for a guest
+// -- Bloxity's generated guest identity isn't stable across sessions, so a
+// guest's progress has nowhere durable to live.
+export function getStableUserId() {
+  const u = authState.user
+  if (!u) return ''
+  const id = u._id || u.id || u.userId
+  return typeof id === 'string' && id ? id : ''
+}
+
 function onUser() {
   const SDK = sdk()
   // Re-read rather than trusting the callback argument, so nothing downstream
