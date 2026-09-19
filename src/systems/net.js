@@ -281,8 +281,14 @@ function progressPayload() {
 
 let progressResendTimer = 0
 
+// No client-side identity gate here on purpose: the ROOM is the authority on
+// whether this session is allowed to persist (ArenaRoom.ts's `userIds` map,
+// set by `identify`/join options), so a send that arrives just after a logout
+// simply lands as a no-op there instead of racing this module's own view of
+// authState. sendIdentityNow() below relies on exactly this to flush a final
+// save under the OLD id before the room forgets it.
 function sendProgressNow() {
-  if (!room || !getStableUserId()) return
+  if (!room) return
   try {
     room.send('saveProgress', progressPayload())
   } catch {
@@ -333,6 +339,42 @@ function onLocalStoreChangeProgress(state) {
 // already the source of truth by then, and the next scheduled saveProgress
 // writes it back over Mongo regardless.
 let hydratedFromServer = false
+
+// --- Identity sync (login/logout mid-session) ----------------------------
+// join options only carry whatever username/userId was true the instant the
+// socket opened. Bloxity auth routinely settles AFTER that (or changes later
+// via login/logout without a page reload), so without this, ArenaRoom.ts's
+// userIds map would stay stuck on whatever was true at join forever — a
+// player who joined as a guest and later signed in would see their real name
+// on their OWN leaderboard row (currentUsername() is read live in
+// getLeaderboard() below) while `saveProgress` silently no-oped server-side
+// for their whole session, since the room never learned their userId. That
+// was the actual bug: progress looked like it was being tracked but never
+// reached Mongo, so it was always gone on the next refresh.
+let lastIdentity = { userId: '', username: '' }
+
+function sendIdentityNow() {
+  if (!room) return
+  const prevUserId = lastIdentity.userId
+  const userId = getStableUserId()
+  const username = currentUsername()
+  if (userId === prevUserId && username === lastIdentity.username) return
+
+  // Logging out (or switching accounts) — flush this session's progress
+  // under the OLD id before the room forgets it below; once it does,
+  // saveProgress can no longer reach that document.
+  if (prevUserId && prevUserId !== userId) sendProgressNow()
+  // A freshly-signed-in id gets its saved doc hydrated again, same as a
+  // brand-new join — see hydratedFromServer's own comment.
+  if (userId && userId !== prevUserId) hydratedFromServer = false
+
+  lastIdentity = { userId, username }
+  try {
+    room.send('identify', { userId, username })
+  } catch {
+    // Socket mid-close — the next attach re-seeds via join options anyway.
+  }
+}
 
 // --- PVP health sync ----------------------------------------------------
 // Our own respawn (systems/playerHealth.js) -> the room. Damage itself is
@@ -486,6 +528,11 @@ function attachRoom(joined) {
   // schema default (0), so a rejoin needs its current power/rebirth/wins
   // re-stated immediately rather than waiting for the next store change.
   sendStatsNow()
+  // The join options already carried whatever identity was true the instant
+  // we connected — seed lastIdentity to match so sendIdentityNow() (fired
+  // from the subscribeAuth callback below) only resends on a REAL change
+  // after this point, not an immediate redundant duplicate of the join.
+  lastIdentity = { userId: getStableUserId(), username: currentUsername() }
 
   recount()
   setStatus('online')
@@ -517,6 +564,7 @@ function recount() {
 let offAvatar = null
 let offStats = null
 let offProgress = null
+let offIdentity = null
 let offHealthNet = null
 
 export function init() {
@@ -533,6 +581,11 @@ export function init() {
   // Our own durable save -> the room, debounced (see scheduleProgressResend).
   // A no-op for a guest or while offline; see progressPayload()'s own comment.
   if (!offProgress) offProgress = useGameStore.subscribe(onLocalStoreChangeProgress)
+  // Login/logout/account-switch -> the room, immediately (see
+  // sendIdentityNow()'s own comment for why this exists). subscribeAuth also
+  // fires on friends/balance/avatar loads, not just identity changes;
+  // sendIdentityNow()'s own diff check is what filters those out.
+  if (!offIdentity) offIdentity = subscribeAuth(() => sendIdentityNow())
   // Our own PVP respawn -> the room. A no-op while offline; harmless if it
   // never sends (there's no server hp to reconcile against without a room).
   if (!offHealthNet) offHealthNet = subscribeHealthNet(onLocalHealthEvent)
@@ -563,6 +616,10 @@ export function teardown() {
   if (offProgress) {
     offProgress()
     offProgress = null
+  }
+  if (offIdentity) {
+    offIdentity()
+    offIdentity = null
   }
   if (offHealthNet) {
     offHealthNet()
