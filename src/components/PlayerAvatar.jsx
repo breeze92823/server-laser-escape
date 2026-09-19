@@ -114,7 +114,7 @@ export default function PlayerAvatar({ onReady }) {
     const gait = gaitRef.current
     if (gait) {
       const speed = Math.hypot(player.velocity.x, player.velocity.z) / SPEED
-      updateGait(gait, Math.min(delta, 0.1), speed)
+      updateGait(gait, Math.min(delta, 0.1), speed, player.grounded)
     }
 
     // "Just got hit" pulse — Player.jsx drives the same pulse on the

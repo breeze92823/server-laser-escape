@@ -37,8 +37,10 @@ export function makeGait(built) {
   const gait = {
     built,
     axis: AXES[GAIT.swingAxis] || AXES.x,
+    swayAxis: AXES[GAIT.swayAxis] || AXES.z,
     amp: 0, // eased 0..1 locomotion weight
     phase: 0, // radians along the stride
+    idleTime: 0, // seconds, only advances while idle (drives the breathing sway)
     q: new THREE.Quaternion(), // scratch
     mixer: null,
     run: null,
@@ -77,8 +79,10 @@ export function makeGait(built) {
   return gait
 }
 
-// speed01: horizontal speed / target run speed. Values outside 0..1 are clamped.
-export function updateGait(gait, dt, speed01) {
+// speed01: horizontal speed / target run speed. Values outside 0..1 are
+// clamped. grounded (default true, since remote callers don't have this data
+// over the network yet) gates the airborne pose below.
+export function updateGait(gait, dt, speed01, grounded = true) {
   if (!gait || dt <= 0) return
 
   const target = speed01 < 0 ? 0 : speed01 > 1 ? 1 : speed01
@@ -99,11 +103,44 @@ export function updateGait(gait, dt, speed01) {
     return
   }
 
-  // Below the ease-out floor: hold the exact bind pose and stop touching bones.
-  if (gait.amp < 0.01) {
-    for (const limb of gait.limbs) limb.bone.quaternion.copy(limb.bind)
-    if (gait.spine) gait.spine.quaternion.copy(gait.spineBind)
+  // Airborne (jumping or falling): tuck the legs, throw the arms up. Takes
+  // priority over the walk cycle and the idle sway below — a jump mid-stride
+  // or mid-breath should cut straight to it.
+  if (!grounded) {
+    for (const limb of gait.limbs) {
+      let angle = 0
+      if (limb.name === 'LegL1') angle = GAIT.airborneLegL
+      else if (limb.name === 'LegR1') angle = GAIT.airborneLegR
+      else if (limb.kind === 'arm') angle = GAIT.airborneArm
+      gait.q.setFromAxisAngle(gait.axis, angle)
+      limb.bone.quaternion.copy(limb.bind).premultiply(gait.q)
+    }
+    if (gait.spine) {
+      gait.q.setFromAxisAngle(AXES.x, GAIT.airborneLean)
+      gait.spine.quaternion.copy(gait.spineBind).premultiply(gait.q)
+    }
     gait.built.root.position.y = 0
+    return
+  }
+
+  // Below the ease-out floor: a slow breathing sway instead of a rigid hold.
+  if (gait.amp < 0.01) {
+    gait.idleTime += dt
+    const idle = Math.sin(gait.idleTime * GAIT.idleSwayHz)
+    for (const limb of gait.limbs) {
+      if (limb.kind !== 'arm') {
+        limb.bone.quaternion.copy(limb.bind)
+        continue
+      }
+      const sign = limb.name === 'ArmL1' ? -1 : 1
+      gait.q.setFromAxisAngle(gait.swayAxis, sign * (GAIT.idleArmSway + idle * GAIT.idleArmSwayAmp))
+      limb.bone.quaternion.copy(limb.bind).premultiply(gait.q)
+    }
+    if (gait.spine) {
+      gait.q.setFromAxisAngle(AXES.x, idle * GAIT.idleSpineSway)
+      gait.spine.quaternion.copy(gait.spineBind).premultiply(gait.q)
+    }
+    gait.built.root.position.y = idle * GAIT.idleBob
     return
   }
 

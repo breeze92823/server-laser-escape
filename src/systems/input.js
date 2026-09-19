@@ -5,7 +5,12 @@
 // orbits on right-drag and there is no OrbitControls.
 import { AFK_INTERACT_KEY } from '../data/afk.js'
 export const inputState = {
-  move: { x: 0, z: 0 }, // x = strafe (+ right), z = forward (+ forward); pre-normalised
+  // x = strafe (+ right), z = forward (+ forward); pre-normalised. Keyboard
+  // only ever writes z now — A/D and the arrow keys turn the camera (see
+  // `turn` below) instead of strafing; touch's virtual joystick is the only
+  // thing that still drives x, straight from setTouchMove.
+  move: { x: 0, z: 0 },
+  turn: 0, // -1 (A/Left) .. +1 (D/Right); held-key camera yaw, consumed by cameraOrbit
   look: { dx: 0, dy: 0 }, // pixels dragged this frame; consumed by cameraOrbit
   zoom: 0, // wheel delta this frame; consumed by cameraOrbit
   pointerNDC: { x: 0, y: 0 }, // mouse position in [-1, 1] clip space; consumed by systems/laser.js
@@ -156,19 +161,21 @@ export function isSuspended() {
 }
 
 function recomputeMove() {
-  let x = 0
   let z = 0
   if (held.has('KeyW') || held.has('ArrowUp')) z += 1
   if (held.has('KeyS') || held.has('ArrowDown')) z -= 1
-  if (held.has('KeyA') || held.has('ArrowLeft')) x -= 1
-  if (held.has('KeyD') || held.has('ArrowRight')) x += 1
-  const len = Math.hypot(x, z)
-  if (len > 0) {
-    x /= len
-    z /= len
-  }
-  inputState.move.x = x
   inputState.move.z = z
+}
+
+// A/D and the left/right arrows turn the camera around the player instead of
+// strafing (see the inputState.move comment above) — held, not edge-
+// triggered, so cameraOrbit can drive a continuous yaw rate while a key is
+// down, the same way a mouse drag does.
+function recomputeTurn() {
+  let t = 0
+  if (held.has('KeyA') || held.has('ArrowLeft')) t -= 1
+  if (held.has('KeyD') || held.has('ArrowRight')) t += 1
+  inputState.turn = t
 }
 
 function onKeyDown(e) {
@@ -182,11 +189,13 @@ function onKeyDown(e) {
   if (e.code === 'Space') inputState.jump = true
   if (e.code === AFK_INTERACT_KEY) inputState.interact = true
   recomputeMove()
+  recomputeTurn()
 }
 
 function onKeyUp(e) {
   held.delete(e.code)
   recomputeMove()
+  recomputeTurn()
 }
 
 function onPointerDown(e) {
@@ -245,6 +254,7 @@ function onBlur() {
   inputState.firing = false
   inputState.interact = false
   recomputeMove()
+  recomputeTurn()
 }
 
 // Live key-held check, for systems (e.g. systems/afk.js) that need to poll a
