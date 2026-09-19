@@ -6,13 +6,13 @@
 // The one-shot fired on the press edge only (systems/actionTracker.js) —
 // never repeated while the button stays held, that's laser_beam.mp3's job.
 export const LASER_FIRE_SOUND_URL = '/audio/laser_fire.mp3'
-export const LASER_FIRE_GAIN = 0.8 // 0..1, multiplies on top of the master volume bus
+export const LASER_FIRE_GAIN = 0.12 // 0..1, multiplies on top of the master volume bus
 
 // Looped for as long as systems/laser.js's laser.active stays true (real
 // mouse hold or the AFK auto-fire lock) — the continuous "still firing" bed,
 // started/stopped on that edge instead of retriggering the one-shot above.
 export const LASER_BEAM_SOUND_URL = '/audio/laser_beam.mp3'
-export const LASER_BEAM_GAIN = 0.6 // 0..1, multiplies on top of the master volume bus
+export const LASER_BEAM_GAIN = 0.09 // 0..1, multiplies on top of the master volume bus
 export const LASER_BEAM_FADE_IN = 0.04 // s, click-free start
 export const LASER_BEAM_FADE_OUT = 0.06 // s, click-free stop
 
@@ -24,7 +24,7 @@ export const LASER_BEAM_FADE_OUT = 0.06 // s, click-free stop
 // almost entirely below 800Hz, so this stays clear of it instead of getting
 // masked by the continuous beam loop while the player holds fire.
 export const POWER_GAIN_SOUND_URL = '/audio/power_gain.mp3'
-export const POWER_GAIN_GAIN = 0.9 // 0..1, multiplies on top of the master volume bus
+export const POWER_GAIN_GAIN = 0.135 // 0..1, multiplies on top of the master volume bus
 
 // One-shot fired every time the store's `level` rises (components/hud/
 // LevelUpPopup.jsx's store subscription, the same instant the "LEVEL UP!"
@@ -34,7 +34,7 @@ export const POWER_GAIN_GAIN = 0.9 // 0..1, multiplies on top of the master volu
 // and swap playLevelUp() over to load it — a real file wins over synthesized
 // audio once one exists.
 export const LEVEL_UP_SOUND_URL = '/audio/level_up.mp3'
-export const LEVEL_UP_GAIN = 0.8 // 0..1, multiplies on top of the master volume bus
+export const LEVEL_UP_GAIN = 0.12 // 0..1, multiplies on top of the master volume bus
 
 // Synthesized stopgap chime: a short ascending arpeggio (systems/sfx.js's
 // synthesizeLevelUpBuffer()), rendered once via OfflineAudioContext and cached
@@ -54,7 +54,7 @@ export const LEVEL_UP_SYNTH_SHIMMER_GAIN = 0.18 // 0..1, mixed under each note's
 // a real file here and swap playButtonClick() over to load it, same as
 // LEVEL_UP_SOUND_URL above.
 export const BUTTON_CLICK_SOUND_URL = '/audio/button_click.mp3'
-export const BUTTON_CLICK_GAIN = 0.5 // 0..1, multiplies on top of the master volume bus
+export const BUTTON_CLICK_GAIN = 0.075 // 0..1, multiplies on top of the master volume bus
 
 // Synthesized stopgap click: a quick high sine "tick" plus a short filtered
 // noise burst for tactile texture (systems/sfx.js's
