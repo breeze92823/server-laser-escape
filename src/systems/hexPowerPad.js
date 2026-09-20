@@ -9,6 +9,7 @@ import { player } from './playerState.js'
 import { useGameStore } from '../store/useGameStore.js'
 import { playPowerGainPop } from './sfx.js'
 import { showActionResult } from './actionResult.js'
+import { formatShort } from '../data/format.js'
 import { HEX_POWER_PAD_POSITIONS, HEX_POWER_PAD_TIERS, HEX_POWER_PAD_RANGE } from '../data/hexPowerPad.js'
 
 export const hexPowerPadState = {
@@ -61,9 +62,9 @@ export function interactWithNearestPad() {
     if (state.wins >= tier.winsRequired) {
       state.buyHexPad(index)
       playPowerGainPop()
-      showActionResult(`Laser Purchased! +${tier.powerPerAction} Power`, true)
+      showActionResult(`Laser Purchased! +${formatShort(tier.powerPerAction)} Power`, true)
     } else {
-      showActionResult(`Need ${tier.winsRequired} Wins to Buy`, false)
+      showActionResult(`Need ${formatShort(tier.winsRequired)} Wins to Buy`, false)
     }
   }
 }

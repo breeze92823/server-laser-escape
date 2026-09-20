@@ -561,23 +561,6 @@ function LeftCenterControls() {
           type="button"
           onClick={() => {
             playButtonClick()
-            acceptRebirth()
-          }}
-          disabled
-          title="Coming soon"
-          className="pointer-events-auto flex h-12 w-12 flex-col items-center justify-center gap-0.5 rounded-lg border border-amber-400/40 bg-amber-600/80 text-slate-100 shadow-lg transition hover:bg-amber-500 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-amber-600/80"
-        >
-          <img src="/ui/invite_friends.png" alt="" className="h-5 w-5" draggable={false} />
-          <span className="text-center text-[6px] font-semibold leading-[1.1] tracking-wide">
-            Invite
-            <br />
-            Friends
-          </span>
-        </button>
-        <button
-          type="button"
-          onClick={() => {
-            playButtonClick()
             setShowRebirthWindow(true)
           }}
           title="Open Rebirth"
@@ -645,23 +628,6 @@ function LeftCenterControls() {
           </button>
         </div>
         <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => {
-              playButtonClick()
-              acceptRebirth()
-            }}
-            disabled
-            title="Coming soon"
-            className="pointer-events-auto flex h-20 w-20 flex-col items-center justify-center gap-1 rounded-lg border border-amber-400/40 bg-amber-600/80 px-3 py-2 text-slate-100 shadow-lg transition hover:bg-amber-500 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-amber-600/80"
-          >
-            <img src="/ui/invite_friends.png" alt="" className="h-10 w-10" draggable={false} />
-            <span className="text-xs font-semibold leading-tight tracking-wide text-center">
-              Invite
-              <br />
-              Friends
-            </span>
-          </button>
           <button
             type="button"
             onClick={() => {
