@@ -25,8 +25,14 @@ export const afkState = {
   targetId: null, // AFK_TARGET_CONFIG id currently locked onto, valid only while active
   multiplier: 1, // power multiplier for the locked target, valid only while active
   nearTargetId: null, // nearest configured target within AFK_RANGE this frame, or null; drives the HUD prompt
-  nearAllowed: false, // player's rebirth meets nearTargetId's rebirthRequired
+  nearAllowed: false, // player's rebirth meets nearTargetId's rebirthRequired AND (no winsRequired or already owned)
   nearRebirthRequired: 0, // nearTargetId's rebirthRequired, for the HUD prompt
+  nearNeedsPurchase: false, // nearTargetId has a winsRequired (data/afk.js) not yet in the store's ownedTargets
+  // Set by systems/interact.js the frame a completed hold lands on a
+  // nearNeedsPurchase target — components/hud/Hud.jsx polls this the same
+  // way it polls systems/merchant.js's openAuraRequested, opens
+  // TargetPurchaseWindow for this id, then clears it back to null.
+  purchaseRequestedId: null,
 }
 
 function findNearestTargetInRange() {
@@ -66,10 +72,13 @@ export function startAfk(id) {
 
 export function step() {
   const nearId = findNearestTargetInRange()
-  const rebirth = useGameStore.getState().rebirth
+  const { rebirth, ownedTargets } = useGameStore.getState()
   afkState.nearTargetId = nearId
   afkState.nearRebirthRequired = nearId ? AFK_TARGET_CONFIG[nearId].rebirthRequired : 0
-  afkState.nearAllowed = nearId !== null && rebirth >= afkState.nearRebirthRequired
+  afkState.nearNeedsPurchase =
+    nearId !== null && !!AFK_TARGET_CONFIG[nearId].winsRequired && !ownedTargets.has(nearId)
+  afkState.nearAllowed =
+    nearId !== null && rebirth >= afkState.nearRebirthRequired && !afkState.nearNeedsPurchase
 
   // Toggle off is instant on a plain keydown — no hold gate, since the "AFK
   // firing..." message has no keycap to hold against (Hud.jsx's

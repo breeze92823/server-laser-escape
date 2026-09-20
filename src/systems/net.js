@@ -260,7 +260,8 @@ function onLocalStoreChange(state) {
 
 // --- Progress sync (persisted save) --------------------------------------
 // The durable half of store/useGameStore.js — power/rebirth/wins plus owned
-// and equipped hex pads/auras — pushed to a signed-in player's own document
+// and equipped hex pads/auras and owned wins-gated targets — pushed to a
+// signed-in player's own document
 // in the server's Mongo `players` collection (server src/db.ts, ArenaRoom.ts's
 // `saveProgress`). A guest has no stable id (systems/bloxity.js
 // getStableUserId(), which this gates on) and this simply never sends for
@@ -276,6 +277,7 @@ function progressPayload() {
     equippedHexPad: s.equippedHexPad,
     ownedAuras: Array.from(s.ownedAuras),
     equippedAura: s.equippedAura,
+    ownedTargets: Array.from(s.ownedTargets),
   }
 }
 
@@ -324,6 +326,7 @@ function onLocalStoreChangeProgress(state) {
     state.equippedAura,
     state.ownedHexPads.size,
     state.ownedAuras.size,
+    state.ownedTargets.size,
   ])
   if (snap !== lastScheduledProgress) {
     lastScheduledProgress = snap

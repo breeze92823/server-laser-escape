@@ -1,12 +1,12 @@
-// Shared GLSL for the Aura fire/smoke trail (components/AuraParticles.jsx).
-// One vertex shader for both pools: every particle's whole trajectory —
-// rise, sideways sway, and the backward "wind" bend from the player's own
-// movement — is a closed-form function of its own age, sampled once per
-// vertex on the GPU. That's the whole optimization: systems/auraParticles.js
-// only ever writes a few floats into a typed array when a particle spawns;
-// there is no per-particle JS simulation loop and no per-frame CPU matrix
-// math (contrast components/LaserParticles.jsx's InstancedMesh, which does
-// need a JS loop because it can't run a vertex shader of its own).
+// Shared GLSL for the Aura magical fire trail (components/AuraParticles.jsx).
+// Every particle's whole trajectory — rise, sideways sway, and the backward
+// "wind" bend from the player's own movement — is a closed-form function of
+// its own age, sampled once per vertex on the GPU. That's the whole
+// optimization: systems/auraParticles.js only ever writes a few floats into
+// a typed array when a particle spawns; there is no per-particle JS
+// simulation loop and no per-frame CPU matrix math (contrast components/
+// LaserParticles.jsx's InstancedMesh, which does need a JS loop because it
+// can't run a vertex shader of its own).
 //
 // aWind is captured once at spawn (-playerVelocity.xz * a per-pool drag
 // tunable, systems/auraParticles.js) rather than integrated frame-by-frame —
@@ -79,19 +79,5 @@ export const AURA_FIRE_FRAGMENT_SHADER = /* glsl */ `
     if (alpha < 0.02) discard;
     vec3 color = mix(uCoreColor, uEdgeColor, vAgeFrac);
     gl_FragColor = vec4(color * alpha, alpha);
-  }
-`
-
-// Smoke: a single tier-tinted grey, ordinary (non-additive) alpha.
-export const AURA_SMOKE_FRAGMENT_SHADER = /* glsl */ `
-  uniform vec3 uColor;
-  varying float vAlpha;
-
-  void main() {
-    vec2 uv = gl_PointCoord - 0.5;
-    float mask = smoothstep(0.5, 0.0, length(uv));
-    float alpha = mask * vAlpha;
-    if (alpha < 0.02) discard;
-    gl_FragColor = vec4(uColor, alpha);
   }
 `

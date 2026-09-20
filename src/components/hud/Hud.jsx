@@ -11,6 +11,7 @@ import { useGameStore } from '../../store/useGameStore.js'
 import { canAcceptRebirth, rebirthRequirement } from '../../data/progression.js'
 import { AURA_TIERS } from '../../data/aura.js'
 import { SHOP_ITEMS } from '../../data/shop.js'
+import { AFK_TARGET_CONFIG } from '../../data/afk.js'
 import ActionPopups from './ActionPopups.jsx'
 import TouchControls from './TouchControls.jsx'
 import RotatePrompt from './RotatePrompt.jsx'
@@ -21,7 +22,7 @@ import NetStatus from './NetStatus.jsx'
 import AuthPanel from './AuthPanel.jsx'
 import IdentityChip from './IdentityChip.jsx'
 import ActionResult from './ActionResult.jsx'
-import { actionResultState } from '../../systems/actionResult.js'
+import { actionResultState, showActionResult } from '../../systems/actionResult.js'
 import { useSettings, useTouchMode } from './hooks.js'
 
 // 1000 -> "1K", 1500 -> "1.5K", 2_000_000 -> "2M". Trims a trailing ".0".
@@ -442,6 +443,59 @@ function AuraWindow({ onClose, isTouch }) {
   )
 }
 
+// Opened by holding E against a wins-gated AFK target (data/afk.js
+// AFK_TARGET_CONFIG winsRequired — currently vortex_target and
+// grand_gold_multi_target) before it's owned — systems/afk.js sets
+// afkState.purchaseRequestedId, LeftCenterControls below polls it the same
+// way it polls merchantState.openAuraRequested for AuraWindow. Shares
+// RebirthWindow/AuraWindow/ShopWindow's HudModal chrome; the body is just the
+// one Buy button (same amber/🏆/formatCompact styling as AuraEntry's and
+// ShopItemCard's wins buttons) — there's nothing else to configure here,
+// unlike Aura's per-tier list. E does nothing on this target until the
+// purchase goes through (systems/interact.js nearNeedsPurchase gate).
+//
+// Unlike AuraEntry/ShopItemCard's wins buttons, this one stays clickable even
+// when unaffordable — buyTarget() itself no-ops on insufficient wins (same
+// re-check-everything shape as every other buy action), and an unaffordable
+// click reports that through the top-centre ActionResult popup (same
+// "Need N Wins to Buy" wording systems/hexPowerPad.js uses for its own
+// wins-gated buy) instead of a disabled button silently doing nothing.
+function TargetPurchaseWindow({ targetId, onClose, isTouch }) {
+  const wins = useGameStore((s) => s.wins)
+  const buyTarget = useGameStore((s) => s.buyTarget)
+  const price = AFK_TARGET_CONFIG[targetId]?.winsRequired ?? 0
+  const name = targetId.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
+  const textOutline = { WebkitTextStroke: isTouch ? '1px black' : '1.5px black', paintOrder: 'stroke fill' }
+  return (
+    <HudModal title={name} onClose={onClose} isTouch={isTouch}>
+      <div
+        className={`text-center font-bold text-white ${isTouch ? 'text-sm' : 'text-xl'}`}
+        style={textOutline}
+      >
+        Buy this target to AFK here
+      </div>
+
+      <button
+        type="button"
+        onClick={() => {
+          playButtonClick()
+          if (wins >= price) {
+            buyTarget(targetId)
+            onClose()
+          } else {
+            showActionResult(`Need ${formatCompact(price)} Wins to Buy`, false)
+          }
+        }}
+        className={`mb-2 flex items-center justify-center gap-2 rounded-lg border-2 border-black bg-gradient-to-b from-amber-300 to-amber-500 font-black text-white shadow-[0_4px_0_rgba(0,0,0,0.4)] transition hover:brightness-110 active:brightness-95 ${isTouch ? 'px-5 py-2 text-base' : 'px-8 py-3 text-2xl'}`}
+        style={textOutline}
+      >
+        <span>🏆</span>
+        <span>Buy for {formatCompact(price)}</span>
+      </button>
+    </HudModal>
+  )
+}
+
 // Left-edge, vertically centred stack: win count above, rebirth action below.
 // Both are selector-driven and re-render only when their value changes, never
 // per frame (Tech.md §5.4). Wins change at human speed; rebirth eligibility is
@@ -455,6 +509,7 @@ function LeftCenterControls() {
   const [showRebirthWindow, setShowRebirthWindow] = useState(false)
   const [showAuraWindow, setShowAuraWindow] = useState(false)
   const [showShopWindow, setShowShopWindow] = useState(false)
+  const [purchaseTargetId, setPurchaseTargetId] = useState(null)
   const isTouch = useTouchMode()
 
   // systems/merchant.js can't open a React panel itself (framework-free,
@@ -466,6 +521,20 @@ function LeftCenterControls() {
       if (merchantState.openAuraRequested) {
         merchantState.openAuraRequested = false
         setShowAuraWindow(true)
+      }
+    }, 100)
+    return () => clearInterval(id)
+  }, [])
+
+  // Same handoff as the merchant poll above, for systems/afk.js's
+  // purchaseRequestedId (a completed hold against a wins-gated, not-yet-owned
+  // AFK target — see TargetPurchaseWindow).
+  useEffect(() => {
+    const id = setInterval(() => {
+      if (afkState.purchaseRequestedId) {
+        const targetId = afkState.purchaseRequestedId
+        afkState.purchaseRequestedId = null
+        setPurchaseTargetId(targetId)
       }
     }, 100)
     return () => clearInterval(id)
@@ -498,6 +567,17 @@ function LeftCenterControls() {
     showShopWindow &&
     createPortal(
       <ShopWindow isTouch={isTouch} onClose={() => setShowShopWindow(false)} />,
+      document.body,
+    )
+
+  const targetPurchaseWindow =
+    purchaseTargetId &&
+    createPortal(
+      <TargetPurchaseWindow
+        targetId={purchaseTargetId}
+        isTouch={isTouch}
+        onClose={() => setPurchaseTargetId(null)}
+      />,
       document.body,
     )
 
@@ -572,6 +652,7 @@ function LeftCenterControls() {
         {rebirthWindow}
         {auraWindow}
         {shopWindow}
+        {targetPurchaseWindow}
       </div>
     )
   }
@@ -645,6 +726,7 @@ function LeftCenterControls() {
       {rebirthWindow}
       {auraWindow}
       {shopWindow}
+      {targetPurchaseWindow}
     </div>
   )
 }

@@ -51,7 +51,11 @@ const ActionResult = forwardRef(function ActionResult(_props, ref) {
       ref={rootRef}
       data-hud="action-result"
       className="pointer-events-none absolute left-1/2 top-16 flex -translate-x-1/2 flex-col items-center gap-1"
-      style={{ display: 'none' }}
+      // zIndex 60: above HudModal's popups (Rebirth/Aura/Shop/target-purchase
+      // — Hud.jsx's HudModal, z-50, portaled to document.body) so a failed
+      // buy attempt still reads on top of whichever window triggered it,
+      // but below RotatePrompt's full-screen gate (inline zIndex 100).
+      style={{ display: 'none', zIndex: 60 }}
     >
       <div
         ref={barRef}

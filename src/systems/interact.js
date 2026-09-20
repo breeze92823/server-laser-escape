@@ -37,9 +37,16 @@ export function step() {
   if (zoneKey.startsWith('afk:')) {
     // The prompt shows "Press E to AFK Here" regardless of eligibility now
     // (Hud.jsx) — a completed hold against an under-levelled target reports
-    // the gate through ActionResult instead of silently doing nothing.
+    // the gate through ActionResult instead of silently doing nothing. A
+    // target that's wins-gated but not yet owned (data/afk.js winsRequired,
+    // e.g. vortex_target/grand_gold_multi_target) opens the Buy popup instead
+    // — same "flag it, let Hud.jsx's poll pick it up" handoff as the merchant
+    // zone's openAuraRequested below, so this system stays framework-free.
     if (afkState.nearAllowed) {
       startAfk(afkState.nearTargetId)
+    } else if (afkState.nearNeedsPurchase) {
+      afkState.purchaseRequestedId = afkState.nearTargetId
+      playPowerGainPop()
     } else {
       showActionResult(`Rebirth ${afkState.nearRebirthRequired} required`, false)
     }

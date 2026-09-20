@@ -18,6 +18,7 @@ import {
 import { HEX_POWER_PAD_TIERS } from '../data/hexPowerPad.js'
 import { AURA_TIERS, auraStrengthMultiplier } from '../data/aura.js'
 import { SHOP_ITEMS } from '../data/shop.js'
+import { AFK_TARGET_CONFIG } from '../data/afk.js'
 
 // Tech.md §2/§5: THE store — durable state + derive() + all actions. No
 // middleware (no persist, no immer, no subscribeWithSelector).
@@ -43,6 +44,7 @@ export const useGameStore = create((set, get) => ({
   equippedHexPad: 0, // index of the currently equipped pad, or null
   ownedAuras: new Set(), // indices into data/aura.js's AURA_TIERS bought with wins
   equippedAura: null, // index into data/aura.js's AURA_TIERS, or null (1x, no aura equipped)
+  ownedTargets: new Set(), // data/targets.js ids bought via buyTarget below (only ids with an AFK_TARGET_CONFIG winsRequired ever need to appear here)
 
   // One Action's worth of Power. Called only from systems/actionTracker.js,
   // never directly from a component. `multiplier` is the AFK target's "xN"
@@ -162,6 +164,22 @@ export const useGameStore = create((set, get) => ({
     set({ equippedAura: null })
   },
 
+  // Called from components/hud/Hud.jsx's TargetPurchaseWindow Buy button —
+  // the one-time Wins unlock for a data/afk.js AFK_TARGET_CONFIG entry that
+  // carries a winsRequired (currently vortex_target, grand_gold_multi_target).
+  // Same re-check-everything-itself shape as buyHexPad/buyAuraTier above so a
+  // duplicate/stale caller can't double-charge or drive wins negative. A
+  // target with no winsRequired (or already owned) is a no-op — systems/
+  // afk.js never opens this purchase flow for one anyway, but this stays
+  // safe to call regardless.
+  buyTarget(id) {
+    const state = get()
+    if (state.ownedTargets.has(id)) return
+    const cfg = AFK_TARGET_CONFIG[id]
+    if (!cfg?.winsRequired || state.wins < cfg.winsRequired) return
+    set((s) => ({ wins: s.wins - cfg.winsRequired, ownedTargets: new Set(s.ownedTargets).add(id) }))
+  },
+
   // Called from components/hud/Hud.jsx's ShopItemCard "Buy with Wins"
   // button — the wins-priced alternative to the SKU's (unwired) Bux price,
   // same affordability-gate-then-spend shape as buyAuraTier/buyHexPad above.
@@ -197,6 +215,7 @@ export const useGameStore = create((set, get) => ({
       const equippedHexPad = ownedHexPads.has(saved.equippedHexPad) ? saved.equippedHexPad : 0
       const ownedAuras = new Set(Array.isArray(saved.ownedAuras) ? saved.ownedAuras : [])
       const equippedAura = ownedAuras.has(saved.equippedAura) ? saved.equippedAura : null
+      const ownedTargets = new Set(Array.isArray(saved.ownedTargets) ? saved.ownedTargets : [])
       const tier = HEX_POWER_PAD_TIERS[equippedHexPad]
       return derive({
         ...s,
@@ -208,6 +227,7 @@ export const useGameStore = create((set, get) => ({
         powerPerAction: tier ? tier.powerPerAction : s.powerPerAction,
         ownedAuras,
         equippedAura,
+        ownedTargets,
       })
     })
   },

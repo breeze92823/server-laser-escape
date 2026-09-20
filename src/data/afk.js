@@ -19,6 +19,15 @@ export const AFK_INTERACT_KEY = 'KeyE'
 // and `rebirthColorTop` / `rebirthColorBottom` do the same independently for
 // the "Rebirth Required" label (both pairs default in
 // components/AfkTargetLabel.jsx — omit either pair to use its default).
+//
+// `winsRequired`, where present, gates the target behind a one-time Wins
+// purchase (store/useGameStore.js ownedTargets/buyTarget) on top of the
+// rebirth gate: holding E there before it's owned opens a Buy popup
+// (systems/afk.js afkState.purchaseRequestedId -> components/hud/Hud.jsx
+// TargetPurchaseWindow) instead of starting AFK — see systems/interact.js.
+// Omit it (or leave undefined) for a target that's free once its
+// rebirthRequired is met, same as every entry below except the two
+// centrepiece targets.
 export const AFK_TARGET_CONFIG = {
   target_grey: { power: 'x1', rebirthRequired: 0 },
   target_yellow: { power: 'x1', rebirthRequired: 0 },
@@ -27,8 +36,8 @@ export const AFK_TARGET_CONFIG = {
   target_tan: { power: 'x6', rebirthRequired: 6 },
   target_blue: { power: 'x10', rebirthRequired: 10 },
   triple_target_gold: { power: 'x15', rebirthRequired: 15 },
-  grand_gold_multi_target: { power: 'x0', rebirthRequired: 0 },
-  vortex_target: { power: 'x0', rebirthRequired: 0 },
+  grand_gold_multi_target: { power: 'x0', rebirthRequired: 0, winsRequired: 40000 },
+  vortex_target: { power: 'x0', rebirthRequired: 0, winsRequired: 20000 },
 }
 
 // "xN" tier string (or a bare number) -> the multiplier actually applied to
