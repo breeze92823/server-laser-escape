@@ -2,13 +2,14 @@
 // singleton, stepped once per frame from GameLoop). Near a pad, the HUD
 // prompts "Press E to Buy Laser" or "Press E to Equip Laser"
 // (components/hud/Hud.jsx polls hexPowerPadState.nearIndex against the
-// store); pressing E there buys or equips it. Mirrors systems/afk.js's
-// proximity-scan-then-interact shape, sharing the same inputState.interact
-// edge flag — see GameLoop.jsx for how the two systems and the flag's final
-// per-frame reset avoid stepping on each other.
-import { inputState } from './input.js'
+// store); holding E there for systems/interactHold.js's HOLD_MS buys or
+// equips it — systems/interact.js calls interactWithNearestPad() below once
+// that hold completes. step() itself only computes proximity now.
 import { player } from './playerState.js'
 import { useGameStore } from '../store/useGameStore.js'
+import { playPowerGainPop } from './sfx.js'
+import { showActionResult } from './actionResult.js'
+import { formatShort } from '../data/format.js'
 import { HEX_POWER_PAD_POSITIONS, HEX_POWER_PAD_TIERS, HEX_POWER_PAD_RANGE } from '../data/hexPowerPad.js'
 
 export const hexPowerPadState = {
@@ -35,22 +36,35 @@ function findNearestPadInRange() {
 
 export function step() {
   hexPowerPadState.nearIndex = findNearestPadInRange()
+}
 
-  if (!inputState.interact) return
+// Called by systems/interact.js once a hold against this pad's zone
+// completes. Does nothing if the pad is already equipped. The prompt shows
+// "Press E to Buy Laser" regardless of affordability now (Hud.jsx), so a
+// completed hold against a pad the player can't yet afford reports that
+// through ActionResult instead of silently doing nothing; a successful buy
+// or equip reports through ActionResult too (green), not just the shared
+// power-gain "pop" sfx.js already plays for both.
+export function interactWithNearestPad() {
   const index = hexPowerPadState.nearIndex
   if (index === null) return
 
-  // Claim the press: it happened inside this pad's zone, whether or not it
-  // ends up doing anything (already equipped, wins short of the gate). Same
-  // "consume on zone entry, not on effect" rule GameLoop.jsx's final reset
-  // relies on for afk.js's target zone.
-  inputState.interact = false
-
   const state = useGameStore.getState()
   if (state.ownedHexPads.has(index)) {
-    if (state.equippedHexPad !== index) state.equipHexPad(index)
+    if (state.equippedHexPad !== index) {
+      state.equipHexPad(index)
+      playPowerGainPop()
+      showActionResult('Laser Equipped', true)
+    }
   } else {
     const tier = HEX_POWER_PAD_TIERS[index]
-    if (tier && state.wins >= tier.winsRequired) state.buyHexPad(index)
+    if (!tier) return
+    if (state.wins >= tier.winsRequired) {
+      state.buyHexPad(index)
+      playPowerGainPop()
+      showActionResult(`Laser Purchased! +${formatShort(tier.powerPerAction)} Power`, true)
+    } else {
+      showActionResult(`Need ${formatShort(tier.winsRequired)} Wins to Buy`, false)
+    }
   }
 }

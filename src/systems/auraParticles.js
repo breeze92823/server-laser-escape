@@ -1,5 +1,5 @@
-// Equipped-Aura fire + smoke trail (Tech.md §5.1 style: framework-free,
-// mutable singleton pools, stepped once per frame from GameLoop). Unlike
+// Equipped-Aura magical fire trail (Tech.md §5.1 style: framework-free,
+// mutable singleton pool, stepped once per frame from GameLoop). Unlike
 // systems/laserParticles.js's pool, this one does no per-particle physics at
 // all — it only ever writes a handful of floats into a typed array when a
 // particle (re)spawns. Everything else (rise, sway, the backward "wind" bend
@@ -8,6 +8,7 @@
 // and components/AuraParticles.jsx for the THREE.Points that reads this pool.
 import { player } from './playerState.js'
 import { useGameStore } from '../store/useGameStore.js'
+import { ULTRA_INSTINCT_INDEX } from '../data/aura.js'
 import {
   FIRE_POOL_SIZE,
   FIRE_SPAWN_RATE,
@@ -23,20 +24,6 @@ import {
   FIRE_SWAY_SPEED_MIN,
   FIRE_SWAY_SPEED_MAX,
   FIRE_WIND_DRAG,
-  SMOKE_POOL_SIZE,
-  SMOKE_SPAWN_RATE,
-  SMOKE_LIFETIME_MIN,
-  SMOKE_LIFETIME_MAX,
-  SMOKE_SPAWN_RADIUS,
-  SMOKE_SPAWN_HEIGHT_MIN,
-  SMOKE_SPAWN_HEIGHT_MAX,
-  SMOKE_SIZE_MIN,
-  SMOKE_SIZE_MAX,
-  SMOKE_RISE_MIN,
-  SMOKE_RISE_MAX,
-  SMOKE_SWAY_SPEED_MIN,
-  SMOKE_SWAY_SPEED_MAX,
-  SMOKE_WIND_DRAG,
 } from '../data/auraParticles.js'
 
 // Elapsed seconds since this module first ticked — the clock the shader's
@@ -50,11 +37,12 @@ import {
 // anything visible on a particle that lives under two seconds.
 export const auraClock = { elapsed: 0 }
 
-// One pool's typed-array attributes, laid out to match the shader's
+// The pool's typed-array attributes, laid out to match the shader's
 // attributes 1:1 (systems/auraParticleShader.js) — components/
 // AuraParticles.jsx wraps each array in a THREE.BufferAttribute directly
 // over this same memory, so a spawn write here needs no copying to reach
-// the GPU, just an `attribute.needsUpdate = true` next frame.
+// the GPU, just a partial re-upload of the slots actually written this frame
+// (dirtyRanges below) next frame.
 function makePool(size) {
   return {
     size,
@@ -69,11 +57,18 @@ function makePool(size) {
     sway: new Float32Array(size * 2),
     wind: new Float32Array(size * 2),
     particleSize: new Float32Array(size),
+    // Slot ranges written by spawnInto this step() call — components/
+    // AuraParticles.jsx uploads only these ranges via THREE's
+    // BufferAttribute.addUpdateRange instead of re-uploading the whole pool
+    // every frame, which matters once the pool is thousands of particles
+    // wide but only ~1% of it changes on a typical frame. At most two
+    // entries: a spawn burst that wraps past the end of the ring buffer
+    // splits into [tail, head].
+    dirtyRanges: [],
   }
 }
 
 export const firePool = makePool(FIRE_POOL_SIZE)
-export const smokePool = makePool(SMOKE_POOL_SIZE)
 
 function spawnInto(pool, tunables, windX, windZ) {
   const i = pool.nextSlot
@@ -115,43 +110,47 @@ const fireTunables = {
   windDrag: FIRE_WIND_DRAG,
 }
 
-const smokeTunables = {
-  spawnRate: SMOKE_SPAWN_RATE,
-  lifetimeMin: SMOKE_LIFETIME_MIN,
-  lifetimeMax: SMOKE_LIFETIME_MAX,
-  spawnRadius: SMOKE_SPAWN_RADIUS,
-  spawnHeightMin: SMOKE_SPAWN_HEIGHT_MIN,
-  spawnHeightMax: SMOKE_SPAWN_HEIGHT_MAX,
-  sizeMin: SMOKE_SIZE_MIN,
-  sizeMax: SMOKE_SIZE_MAX,
-  riseMin: SMOKE_RISE_MIN,
-  riseMax: SMOKE_RISE_MAX,
-  swaySpeedMin: SMOKE_SWAY_SPEED_MIN,
-  swaySpeedMax: SMOKE_SWAY_SPEED_MAX,
-  windDrag: SMOKE_WIND_DRAG,
-}
-
 function stepPool(pool, tunables, dt, spawning, windX, windZ) {
+  pool.dirtyRanges.length = 0
   if (!spawning) {
     pool.spawnAccumulator = 0
     return
   }
   pool.spawnAccumulator += tunables.spawnRate * dt
   if (pool.spawnAccumulator > pool.size) pool.spawnAccumulator = pool.size
+
+  const spawnStart = pool.nextSlot
+  let spawnCount = 0
   while (pool.spawnAccumulator >= 1) {
     spawnInto(pool, tunables, windX, windZ)
     pool.spawnAccumulator -= 1
+    spawnCount += 1
+  }
+  if (spawnCount === 0) return
+
+  if (spawnCount >= pool.size) {
+    pool.dirtyRanges.push({ start: 0, count: pool.size })
+  } else if (spawnStart + spawnCount <= pool.size) {
+    pool.dirtyRanges.push({ start: spawnStart, count: spawnCount })
+  } else {
+    // Wrapped past the end of the ring buffer mid-burst.
+    const tailCount = pool.size - spawnStart
+    pool.dirtyRanges.push({ start: spawnStart, count: tailCount })
+    pool.dirtyRanges.push({ start: 0, count: spawnCount - tailCount })
   }
 }
 
 export function step(dt) {
   auraClock.elapsed += dt
-  const equipped = useGameStore.getState().equippedAura != null
+  const equippedAura = useGameStore.getState().equippedAura
+  // Ultra Instinct gets its own dedicated full-body effect instead
+  // (systems/ultraInstinctAura.js) — suppress this trail so the two don't
+  // render on top of each other.
+  const equipped = equippedAura != null && equippedAura !== ULTRA_INSTINCT_INDEX
   // Captured once per frame, not per particle — every particle spawned this
   // frame shares the same instantaneous read of the player's velocity.
   const windX = -player.velocity.x
   const windZ = -player.velocity.z
 
   stepPool(firePool, fireTunables, dt, equipped, windX, windZ)
-  stepPool(smokePool, smokeTunables, dt, equipped, windX, windZ)
 }

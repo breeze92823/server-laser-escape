@@ -9,22 +9,6 @@ export const PLAYER_MAX_HP = 100
 // factors in — so any player kills any other in exactly 10 hits.
 export const PVP_DAMAGE_PER_HIT = PLAYER_MAX_HP / 10
 
-// Ray-vs-player hit radius (systems/playerCombat.js) at close range, well
-// past the remote's own visual capsule radius (data/net.js REMOTE_BODY.RADIUS,
-// 0.4m) — forgiveness for a genuine near-miss (mouse aim a bit off, the
-// remote's own position-interpolation lag).
-export const PVP_HIT_RADIUS = 0.01
-
-// Beyond PVP_HIT_RADIUS, the effective hit radius widens with range instead
-// of staying fixed (systems/playerCombat.js: effective = max(PVP_HIT_RADIUS,
-// distanceAlongRay * PVP_AIM_ASSIST_TAN)) — a fixed-size hitbox forgives the
-// same few centimetres of mouse error at 5m and at 30m, but real aiming error
-// is angular: the same small slip of the cursor covers a few centimetres up
-// close and metres at range. Raise this for more forgiving hits at real
-// engagement distance; lower it to demand tighter aim. tan(16°) ≈ 0.287: at
-// 10m that's ±2.9m of forgiveness, at 25m ±7.2m.
-export const PVP_AIM_ASSIST_TAN = 0.287
-
 // How long a dead player stays frozen before systems/playerHealth.js respawns
 // them at the game's spawn point (data/hub.js SPAWN).
 export const PVP_RESPAWN_DELAY_MS = 3000

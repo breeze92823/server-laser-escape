@@ -2,17 +2,21 @@
 // stepped once per frame from GameLoop, before actionTracker/laser so both
 // see this frame's state). Near a target in data/afk.js's AFK_TARGET_CONFIG
 // the HUD prompts "Press E to AFK Here" (components/hud/Hud.jsx polls
-// afkState); pressing E there — only if the player's rebirth meets that
-// target's rebirthRequired — locks the player onto it. systems/laser.js then
-// aims the beam at its top area (data/targets.js TARGET_AIM_POINT, offset
-// customizable per id) every frame with no mouse input, exactly as if firing
-// were held, and while locked every Action's Power is scaled by the target's
-// "xN" tier (afkState.multiplier, consumed in systems/actionTracker.js). Any
-// movement key or Space breaks the lock — the player has to stand still to
-// AFK — and E again toggles it off directly.
+// afkState); holding E there for systems/interactHold.js's HOLD_MS — only if
+// the player's rebirth meets that target's rebirthRequired — locks the
+// player onto it (systems/interact.js calls startAfk() below once that hold
+// completes). systems/laser.js then aims the beam at its top area
+// (data/targets.js TARGET_AIM_POINT, offset customizable per id) every frame
+// with no mouse input, exactly as if firing were held, and while locked
+// every Action's Power is scaled by the target's "xN" tier
+// (afkState.multiplier, consumed in systems/actionTracker.js). Any movement
+// key or Space breaks the lock — the player has to stand still to AFK — and
+// E again toggles it off directly, instantly (no hold: that message has no
+// keycap to hold against).
 import { inputState, isHeld } from './input.js'
 import { player } from './playerState.js'
 import { useGameStore } from '../store/useGameStore.js'
+import { playPowerGainPop } from './sfx.js'
 import { TARGET_BY_ID } from '../data/targets.js'
 import { AFK_RANGE, AFK_TARGET_CONFIG, afkPowerMultiplier } from '../data/afk.js'
 
@@ -21,8 +25,14 @@ export const afkState = {
   targetId: null, // AFK_TARGET_CONFIG id currently locked onto, valid only while active
   multiplier: 1, // power multiplier for the locked target, valid only while active
   nearTargetId: null, // nearest configured target within AFK_RANGE this frame, or null; drives the HUD prompt
-  nearAllowed: false, // player's rebirth meets nearTargetId's rebirthRequired
+  nearAllowed: false, // player's rebirth meets nearTargetId's rebirthRequired AND (no winsRequired or already owned)
   nearRebirthRequired: 0, // nearTargetId's rebirthRequired, for the HUD prompt
+  nearNeedsPurchase: false, // nearTargetId has a winsRequired (data/afk.js) not yet in the store's ownedTargets
+  // Set by systems/interact.js the frame a completed hold lands on a
+  // nearNeedsPurchase target — components/hud/Hud.jsx polls this the same
+  // way it polls systems/merchant.js's openAuraRequested, opens
+  // TargetPurchaseWindow for this id, then clears it back to null.
+  purchaseRequestedId: null,
 }
 
 function findNearestTargetInRange() {
@@ -50,33 +60,34 @@ export function stopAfk() {
   afkState.multiplier = 1
 }
 
-function startAfk(id) {
+export function startAfk(id) {
   afkState.active = true
   afkState.targetId = id
   afkState.multiplier = afkPowerMultiplier(AFK_TARGET_CONFIG[id].power)
+  // Same confirmation "pop" as hexPowerPad.js's buy/equip (sfx.js's
+  // power-gain sound) — locking onto a target is this system's equivalent
+  // "the hold actually did something" moment.
+  playPowerGainPop()
 }
 
 export function step() {
   const nearId = findNearestTargetInRange()
-  const rebirth = useGameStore.getState().rebirth
+  const { rebirth, ownedTargets } = useGameStore.getState()
   afkState.nearTargetId = nearId
   afkState.nearRebirthRequired = nearId ? AFK_TARGET_CONFIG[nearId].rebirthRequired : 0
-  afkState.nearAllowed = nearId !== null && rebirth >= afkState.nearRebirthRequired
+  afkState.nearNeedsPurchase =
+    nearId !== null && !!AFK_TARGET_CONFIG[nearId].winsRequired && !ownedTargets.has(nearId)
+  afkState.nearAllowed =
+    nearId !== null && rebirth >= afkState.nearRebirthRequired && !afkState.nearNeedsPurchase
 
-  // Only claim the shared interact flag when it's actually this system's to
-  // handle — hexPowerPad.js also listens on it now, and a press near neither
-  // zone falls through to GameLoop.jsx's end-of-frame reset instead of
-  // lingering into a frame where it would wrongly fire something later.
-  // Consume on zone entry, not on effect: a press near a target the player's
-  // rebirth is too low for still belongs to this system (it just does
-  // nothing), same rule hexPowerPad.js uses for an unaffordable pad.
-  if (inputState.interact && (afkState.active || nearId !== null)) {
+  // Toggle off is instant on a plain keydown — no hold gate, since the "AFK
+  // firing..." message has no keycap to hold against (Hud.jsx's
+  // InteractPrompt). Starting a lock goes through the shared hold gate
+  // instead — see systems/interact.js, which calls startAfk() above once
+  // HOLD_MS is reached.
+  if (afkState.active && inputState.interact) {
     inputState.interact = false
-    if (afkState.active) {
-      stopAfk()
-    } else if (afkState.nearAllowed) {
-      startAfk(nearId)
-    }
+    stopAfk()
   }
 
   if (afkState.active) {

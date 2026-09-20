@@ -25,6 +25,11 @@ import {
   BUTTON_CLICK_SYNTH_DECAY_S,
   BUTTON_CLICK_SYNTH_NOISE_GAIN,
   BUTTON_CLICK_SYNTH_NOISE_DECAY_S,
+  ACTION_FAIL_GAIN,
+  ACTION_FAIL_SYNTH_NOTES_HZ,
+  ACTION_FAIL_SYNTH_NOTE_GAP_S,
+  ACTION_FAIL_SYNTH_ATTACK_S,
+  ACTION_FAIL_SYNTH_DECAY_S,
 } from '../data/sfx.js'
 
 const bufferCache = new Map() // url -> Promise<AudioBuffer|null>
@@ -59,6 +64,7 @@ export function preload() {
   loadBuffer(ctx, POWER_GAIN_SOUND_URL)
   synthesizeLevelUpBuffer(ctx)
   synthesizeButtonClickBuffer(ctx)
+  synthesizeActionFailBuffer(ctx)
 }
 
 // Fire-and-forget: reuses the one decoded buffer, playing a fresh source node
@@ -296,6 +302,68 @@ export function playButtonClick() {
     source.buffer = buffer
     const gain = ctx.createGain()
     gain.gain.value = BUTTON_CLICK_GAIN
+    source.connect(gain)
+    gain.connect(getMasterBus())
+    source.start(0)
+  })
+}
+
+// Renders the "action failed" buzz once via OfflineAudioContext and caches the
+// resulting buffer the same way synthesizeLevelUpBuffer() does — a short
+// descending two-note square-wave stab (data/sfx.js's ACTION_FAIL_SYNTH_*
+// tunables), the inverse shape of the level-up arpeggio's rising chime.
+// Stopgap until a real action_fail.mp3 is dropped in; delete this and switch
+// playActionFail() to loadBuffer() then.
+let actionFailBufferPromise = null
+
+function synthesizeActionFailBuffer(ctx) {
+  if (!actionFailBufferPromise) {
+    const noteMs = (ACTION_FAIL_SYNTH_ATTACK_S + ACTION_FAIL_SYNTH_DECAY_S) * 1000
+    const totalMs =
+      ACTION_FAIL_SYNTH_NOTE_GAP_S * 1000 * (ACTION_FAIL_SYNTH_NOTES_HZ.length - 1) +
+      noteMs +
+      50
+    const sampleRate = ctx.sampleRate
+    const offline = new OfflineAudioContext(1, Math.ceil((totalMs / 1000) * sampleRate), sampleRate)
+
+    ACTION_FAIL_SYNTH_NOTES_HZ.forEach((freq, i) => {
+      const start = i * ACTION_FAIL_SYNTH_NOTE_GAP_S
+      const peak = start + ACTION_FAIL_SYNTH_ATTACK_S
+      const end = peak + ACTION_FAIL_SYNTH_DECAY_S
+
+      const osc = offline.createOscillator()
+      osc.type = 'square'
+      osc.frequency.value = freq
+
+      const gain = offline.createGain()
+      gain.gain.setValueAtTime(0, start)
+      gain.gain.linearRampToValueAtTime(0.7, peak)
+      gain.gain.exponentialRampToValueAtTime(0.001, end)
+
+      osc.connect(gain)
+      gain.connect(offline.destination)
+
+      osc.start(start)
+      osc.stop(end + 0.05)
+    })
+    actionFailBufferPromise = offline.startRendering()
+  }
+  return actionFailBufferPromise
+}
+
+// Fire-and-forget one-shot for a blocked held-E action — called from
+// systems/actionResult.js's showActionResult() the same instant it's invoked
+// with success=false, so the buzz lands on the same frame as the red
+// ActionResult popup (components/hud/ActionResult.jsx).
+export function playActionFail() {
+  const ctx = unlock()
+  if (!ctx) return
+  synthesizeActionFailBuffer(ctx).then((buffer) => {
+    if (!buffer) return
+    const source = ctx.createBufferSource()
+    source.buffer = buffer
+    const gain = ctx.createGain()
+    gain.gain.value = ACTION_FAIL_GAIN
     source.connect(gain)
     gain.connect(getMasterBus())
     source.start(0)

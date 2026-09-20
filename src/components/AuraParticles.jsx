@@ -1,63 +1,63 @@
 import { useEffect, useMemo, useRef } from 'react'
 import { useFrame, useThree } from '@react-three/fiber'
 import * as THREE from 'three'
-import { firePool, smokePool, auraClock } from '../systems/auraParticles.js'
-import {
-  AURA_PARTICLE_VERTEX_SHADER,
-  AURA_FIRE_FRAGMENT_SHADER,
-  AURA_SMOKE_FRAGMENT_SHADER,
-} from '../systems/auraParticleShader.js'
+import { firePool, auraClock } from '../systems/auraParticles.js'
+import { AURA_PARTICLE_VERTEX_SHADER, AURA_FIRE_FRAGMENT_SHADER } from '../systems/auraParticleShader.js'
 import {
   FIRE_FADE_IN,
   FIRE_FADE_OUT_START,
   FIRE_SIZE_GROWTH,
   FIRE_SWAY_AMOUNT,
-  SMOKE_FADE_IN,
-  SMOKE_FADE_OUT_START,
-  SMOKE_SIZE_GROWTH,
-  SMOKE_SWAY_AMOUNT,
-  SMOKE_TINT_WEIGHT,
+  FIRE_CORE_COLOR,
+  FIRE_EDGE_COLOR,
 } from '../data/auraParticles.js'
-import { useGameStore } from '../store/useGameStore.js'
-import { AURA_TIERS } from '../data/aura.js'
 
-const SMOKE_BASE_COLOR = new THREE.Color('#3c3c3c')
-
-// Builds one pool's static (never-changing) BufferGeometry, wrapping the
+// Builds the pool's static (never-changing) BufferGeometry, wrapping the
 // typed arrays systems/auraParticles.js writes spawns into directly — no
-// copy, so a spawn there needs only `attribute.needsUpdate = true` here to
-// reach the GPU.
+// copy, so a spawn there needs only an `addUpdateRange` + `needsUpdate` here
+// to reach the GPU. DynamicDrawUsage hints the driver these buffers are
+// rewritten every frame rather than set once (the ShaderMaterial default,
+// StaticDrawUsage, is meant for geometry that never changes after upload).
 function buildGeometry(pool) {
   const geometry = new THREE.BufferGeometry()
-  geometry.setAttribute('position', new THREE.BufferAttribute(pool.offset, 3))
-  geometry.setAttribute('aBirth', new THREE.BufferAttribute(pool.birth, 1))
-  geometry.setAttribute('aLifetime', new THREE.BufferAttribute(pool.lifetime, 1))
-  geometry.setAttribute('aRise', new THREE.BufferAttribute(pool.rise, 1))
-  geometry.setAttribute('aSway', new THREE.BufferAttribute(pool.sway, 2))
-  geometry.setAttribute('aWind', new THREE.BufferAttribute(pool.wind, 2))
-  geometry.setAttribute('aSize', new THREE.BufferAttribute(pool.particleSize, 1))
+  geometry.setAttribute('position', new THREE.BufferAttribute(pool.offset, 3).setUsage(THREE.DynamicDrawUsage))
+  geometry.setAttribute('aBirth', new THREE.BufferAttribute(pool.birth, 1).setUsage(THREE.DynamicDrawUsage))
+  geometry.setAttribute('aLifetime', new THREE.BufferAttribute(pool.lifetime, 1).setUsage(THREE.DynamicDrawUsage))
+  geometry.setAttribute('aRise', new THREE.BufferAttribute(pool.rise, 1).setUsage(THREE.DynamicDrawUsage))
+  geometry.setAttribute('aSway', new THREE.BufferAttribute(pool.sway, 2).setUsage(THREE.DynamicDrawUsage))
+  geometry.setAttribute('aWind', new THREE.BufferAttribute(pool.wind, 2).setUsage(THREE.DynamicDrawUsage))
+  geometry.setAttribute('aSize', new THREE.BufferAttribute(pool.particleSize, 1).setUsage(THREE.DynamicDrawUsage))
   return geometry
 }
 
-// Presentation only: two GPU-animated THREE.Points clouds driven by
-// systems/auraParticles.js's typed-array pools and systems/
-// auraParticleShader.js's shared vertex shader (see that file for why this
-// is one draw call per pool with no per-particle JS work, unlike
-// components/LaserParticles.jsx's InstancedMesh, which has to loop and
-// compose a matrix per instance every frame since it has no shader of its
-// own to hand that off to).
+// Pushes this frame's spawned slot ranges (systems/auraParticles.js's
+// pool.dirtyRanges) to the GPU as partial buffer updates instead of
+// re-uploading the whole pool every frame — with thousands of particles in
+// the pool but only a couple dozen spawned per frame, a full re-upload would
+// move ~100x more data than actually changed. `itemSize` converts a
+// particle-slot range into the flat-array element range addUpdateRange
+// expects (e.g. a vec2 attribute's slot N lives at elements [2N, 2N+2)).
+function uploadDirtyRanges(attribute, itemSize, dirtyRanges) {
+  for (const { start, count } of dirtyRanges) {
+    attribute.addUpdateRange(start * itemSize, count * itemSize)
+  }
+  attribute.needsUpdate = true
+}
+
+// Presentation only: a GPU-animated THREE.Points cloud driven by
+// systems/auraParticles.js's typed-array pool and systems/
+// auraParticleShader.js's vertex shader (see that file for why this is one
+// draw call with no per-particle JS work, unlike components/
+// LaserParticles.jsx's InstancedMesh, which has to loop and compose a matrix
+// per instance every frame since it has no shader of its own to hand that
+// off to).
 export default function AuraParticles() {
   const fireRef = useRef(null)
-  const smokeRef = useRef(null)
   const gl = useThree((s) => s.gl)
   const camera = useThree((s) => s.camera)
   const size = useThree((s) => s.size)
 
-  const coreHex = useGameStore((s) => AURA_TIERS[s.equippedAura]?.colorCore ?? null)
-  const edgeHex = useGameStore((s) => AURA_TIERS[s.equippedAura]?.colorEdge ?? null)
-
   const fireGeometry = useMemo(() => buildGeometry(firePool), [])
-  const smokeGeometry = useMemo(() => buildGeometry(smokePool), [])
 
   const fireMaterial = useMemo(
     () =>
@@ -71,8 +71,8 @@ export default function AuraParticles() {
           uFadeOutStart: { value: FIRE_FADE_OUT_START },
           uSizeGrowth: { value: FIRE_SIZE_GROWTH },
           uSwayAmount: { value: FIRE_SWAY_AMOUNT },
-          uCoreColor: { value: new THREE.Color('#ffffff') },
-          uEdgeColor: { value: new THREE.Color('#ffffff') },
+          uCoreColor: { value: new THREE.Color(FIRE_CORE_COLOR) },
+          uEdgeColor: { value: new THREE.Color(FIRE_EDGE_COLOR) },
         },
         transparent: true,
         depthWrite: false,
@@ -81,38 +81,6 @@ export default function AuraParticles() {
       }),
     [],
   )
-  const smokeMaterial = useMemo(
-    () =>
-      new THREE.ShaderMaterial({
-        vertexShader: AURA_PARTICLE_VERTEX_SHADER,
-        fragmentShader: AURA_SMOKE_FRAGMENT_SHADER,
-        uniforms: {
-          uTime: { value: 0 },
-          uPixelScale: { value: 1 },
-          uFadeIn: { value: SMOKE_FADE_IN },
-          uFadeOutStart: { value: SMOKE_FADE_OUT_START },
-          uSizeGrowth: { value: SMOKE_SIZE_GROWTH },
-          uSwayAmount: { value: SMOKE_SWAY_AMOUNT },
-          uColor: { value: SMOKE_BASE_COLOR.clone() },
-        },
-        transparent: true,
-        depthWrite: false,
-        toneMapped: false,
-      }),
-    [],
-  )
-
-  useEffect(() => {
-    if (coreHex) fireMaterial.uniforms.uCoreColor.value.set(coreHex)
-    if (edgeHex) {
-      fireMaterial.uniforms.uEdgeColor.value.set(edgeHex)
-      // Smoke stays mostly neutral grey — just a hint of the aura's own
-      // color so it still reads as belonging to that tier (e.g. Void's
-      // smoke leans purple-black, Frost's leans icy) without turning the
-      // smoke itself into a colored effect.
-      smokeMaterial.uniforms.uColor.value.copy(SMOKE_BASE_COLOR).lerp(fireMaterial.uniforms.uEdgeColor.value, SMOKE_TINT_WEIGHT)
-    }
-  }, [coreHex, edgeHex, fireMaterial, smokeMaterial])
 
   // Standard perspective point-size-attenuation scale (mirrors THREE's own
   // size_vertex shader chunk): gl_PointSize = size * scale / -mvPosition.z.
@@ -122,61 +90,42 @@ export default function AuraParticles() {
     const fovRad = (camera.fov * Math.PI) / 180
     const pixelScale = (size.height * dpr) / (2 * Math.tan(fovRad / 2))
     fireMaterial.uniforms.uPixelScale.value = pixelScale
-    smokeMaterial.uniforms.uPixelScale.value = pixelScale
-  }, [camera, gl, size, fireMaterial, smokeMaterial])
+  }, [camera, gl, size, fireMaterial])
 
   useEffect(
     () => () => {
       fireGeometry.dispose()
-      smokeGeometry.dispose()
       fireMaterial.dispose()
-      smokeMaterial.dispose()
     },
-    [fireGeometry, smokeGeometry, fireMaterial, smokeMaterial],
+    [fireGeometry, fireMaterial],
   )
 
   useFrame(() => {
-    const t = auraClock.elapsed
-    fireMaterial.uniforms.uTime.value = t
-    smokeMaterial.uniforms.uTime.value = t
+    fireMaterial.uniforms.uTime.value = auraClock.elapsed
 
-    // Cheap either way (a few hundred floats), but only worth uploading when
-    // systems/auraParticles.js actually wrote new spawns this frame.
+    // Only the slots systems/auraParticles.js actually wrote this frame need
+    // to reach the GPU — everything else is still animating purely from the
+    // vertex shader's own function of uTime, with no CPU-side change at all.
+    const dirtyRanges = firePool.dirtyRanges
+    if (dirtyRanges.length === 0) return
+
     const fireAttrs = fireGeometry.attributes
-    fireAttrs.position.needsUpdate = true
-    fireAttrs.aBirth.needsUpdate = true
-    fireAttrs.aLifetime.needsUpdate = true
-    fireAttrs.aRise.needsUpdate = true
-    fireAttrs.aSway.needsUpdate = true
-    fireAttrs.aWind.needsUpdate = true
-    fireAttrs.aSize.needsUpdate = true
-
-    const smokeAttrs = smokeGeometry.attributes
-    smokeAttrs.position.needsUpdate = true
-    smokeAttrs.aBirth.needsUpdate = true
-    smokeAttrs.aLifetime.needsUpdate = true
-    smokeAttrs.aRise.needsUpdate = true
-    smokeAttrs.aSway.needsUpdate = true
-    smokeAttrs.aWind.needsUpdate = true
-    smokeAttrs.aSize.needsUpdate = true
+    uploadDirtyRanges(fireAttrs.position, 3, dirtyRanges)
+    uploadDirtyRanges(fireAttrs.aBirth, 1, dirtyRanges)
+    uploadDirtyRanges(fireAttrs.aLifetime, 1, dirtyRanges)
+    uploadDirtyRanges(fireAttrs.aRise, 1, dirtyRanges)
+    uploadDirtyRanges(fireAttrs.aSway, 2, dirtyRanges)
+    uploadDirtyRanges(fireAttrs.aWind, 2, dirtyRanges)
+    uploadDirtyRanges(fireAttrs.aSize, 1, dirtyRanges)
   })
 
   return (
-    <>
-      <points
-        ref={fireRef}
-        geometry={fireGeometry}
-        material={fireMaterial}
-        frustumCulled={false}
-        userData={{ laserIgnore: true }}
-      />
-      <points
-        ref={smokeRef}
-        geometry={smokeGeometry}
-        material={smokeMaterial}
-        frustumCulled={false}
-        userData={{ laserIgnore: true }}
-      />
-    </>
+    <points
+      ref={fireRef}
+      geometry={fireGeometry}
+      material={fireMaterial}
+      frustumCulled={false}
+      userData={{ laserIgnore: true }}
+    />
   )
 }

@@ -13,7 +13,7 @@
 // wider than one grain pass tiles without a visible join; the sign region is
 // unique and never tiled.
 import * as THREE from 'three'
-import { ATLAS, PODIUM_STAGE_COLORS as C, SIGN_TEXT } from '../data/podiumStage.js'
+import { ATLAS, PODIUM_STAGE_COLORS as C, SIGN_TEXT, TARGET_SIGN_TEXT } from '../data/podiumStage.js'
 
 // The prop is now placed twice in the hub (data/podiumStage.js
 // PODIUM_STAGE_HUB_TRANSFORM "POWER", PODIUM_STAGE_TARGET_TRANSFORM
@@ -137,10 +137,11 @@ function paintMetal(g, [x, y, w, h], base, light, seed) {
 
 // --- the sign face -------------------------------------------------------
 // Dark ground, a double-stroked white "neon" rounded rectangle with a warm
-// falloff either side of it, POWER in the middle and a red/orange burst star
-// flanking each end — the whole lit look of the sign, baked. Drawn unlit at
-// runtime (MeshBasicMaterial), so these pixels ARE the emission: no alpha, no
-// glow geometry, nothing for a post pass to do (Tech.md §7).
+// falloff either side of it, the sign text in the middle and an icon
+// flanking each end — a red/orange burst star for POWER, a bullseye for
+// TARGETS — the whole lit look of the sign, baked. Drawn unlit at runtime
+// (MeshBasicMaterial), so these pixels ARE the emission: no alpha, no glow
+// geometry, nothing for a post pass to do (Tech.md §7).
 function paintStar(g, cx, cy, r, points, inner, red, hot) {
   const step = Math.PI / points
   // soft halo
@@ -169,6 +170,33 @@ function paintStar(g, cx, cy, r, points, inner, red, hot) {
   }
   spike(r, red)
   spike(r * 0.52, hot)
+}
+
+// Bullseye flanking the TARGETS sign instead of the burst star — same warm
+// halo treatment, alternating rings in the sign's own ink/red/hot colours so
+// it reads as one family of "neon icon" with paintStar.
+function paintBullseye(g, cx, cy, r, ink, red, hot) {
+  const halo = g.createRadialGradient(cx, cy, 0, cx, cy, r * 1.9)
+  halo.addColorStop(0, 'rgba(255,150,90,0.55)')
+  halo.addColorStop(0.45, 'rgba(224,35,52,0.28)')
+  halo.addColorStop(1, 'rgba(224,35,52,0)')
+  g.fillStyle = halo
+  g.beginPath()
+  g.arc(cx, cy, r * 1.9, 0, Math.PI * 2)
+  g.fill()
+
+  const rings = [
+    [r, ink],
+    [r * 0.74, red],
+    [r * 0.48, ink],
+    [r * 0.22, hot],
+  ]
+  for (const [radius, fill] of rings) {
+    g.beginPath()
+    g.arc(cx, cy, radius, 0, Math.PI * 2)
+    g.fillStyle = fill
+    g.fill()
+  }
 }
 
 function paintSign(g, [x, y, w, h], signText) {
@@ -215,7 +243,7 @@ function paintSign(g, [x, y, w, h], signText) {
   }
   g.globalAlpha = 1
 
-  // POWER, and a burst star either side of it
+  // the sign text, and a flanking icon either side of it
   const cy = y + h / 2
   g.font = `700 ${Math.round(h * 0.42)}px "Trebuchet MS", "Arial Black", Arial, sans-serif`
   g.textAlign = 'center'
@@ -229,8 +257,13 @@ function paintSign(g, [x, y, w, h], signText) {
   const starR = h * 0.17
   const textHalf = g.measureText(signText).width / 2
   const starX = Math.min(w / 2 - m - starR * 1.6, textHalf + starR * 2.1)
-  paintStar(g, x + w / 2 - starX, cy, starR, 6, 0.4, C.starRed, C.starHot)
-  paintStar(g, x + w / 2 + starX, cy, starR, 6, 0.4, C.starRed, C.starHot)
+  if (signText === TARGET_SIGN_TEXT) {
+    paintBullseye(g, x + w / 2 - starX, cy, starR, C.signInk, C.starRed, C.starHot)
+    paintBullseye(g, x + w / 2 + starX, cy, starR, C.signInk, C.starRed, C.starHot)
+  } else {
+    paintStar(g, x + w / 2 - starX, cy, starR, 6, 0.4, C.starRed, C.starHot)
+    paintStar(g, x + w / 2 + starX, cy, starR, 6, 0.4, C.starRed, C.starHot)
+  }
 
   g.restore()
 }

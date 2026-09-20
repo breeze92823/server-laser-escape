@@ -12,7 +12,7 @@
 import { player } from './playerState.js'
 import { laser } from './laser.js'
 import { SPEED } from './playerMovement.js'
-import { authState, subscribeAuth } from './bloxity.js'
+import { authState, subscribeAuth, getStableUserId } from './bloxity.js'
 import { avatarState, subscribe as subscribeAvatar } from './avatarState.js'
 import { useGameStore } from '../store/useGameStore.js'
 import { subscribeHealthNet, applyRemoteHealth } from './playerHealth.js'
@@ -36,6 +36,7 @@ import {
   AVATAR_MAX_LEN,
   AVATAR_RESEND_DEBOUNCE_MS,
   STATS_RESEND_DEBOUNCE_MS,
+  PROGRESS_RESEND_DEBOUNCE_MS,
   REMOTE_BODY,
 } from '../data/net.js'
 
@@ -257,6 +258,127 @@ function onLocalStoreChange(state) {
   }
 }
 
+// --- Progress sync (persisted save) --------------------------------------
+// The durable half of store/useGameStore.js — power/rebirth/wins plus owned
+// and equipped hex pads/auras and owned wins-gated targets — pushed to a
+// signed-in player's own document
+// in the server's Mongo `players` collection (server src/db.ts, ArenaRoom.ts's
+// `saveProgress`). A guest has no stable id (systems/bloxity.js
+// getStableUserId(), which this gates on) and this simply never sends for
+// one — same "nowhere durable to live" stance as the rest of the SDK
+// integration (Tech.md §5.6).
+function progressPayload() {
+  const s = useGameStore.getState()
+  return {
+    power: s.power,
+    rebirth: s.rebirth,
+    wins: s.wins,
+    ownedHexPads: Array.from(s.ownedHexPads),
+    equippedHexPad: s.equippedHexPad,
+    ownedAuras: Array.from(s.ownedAuras),
+    equippedAura: s.equippedAura,
+    ownedTargets: Array.from(s.ownedTargets),
+  }
+}
+
+let progressResendTimer = 0
+
+// No client-side identity gate here on purpose: the ROOM is the authority on
+// whether this session is allowed to persist (ArenaRoom.ts's `userIds` map,
+// set by `identify`/join options), so a send that arrives just after a logout
+// simply lands as a no-op there instead of racing this module's own view of
+// authState. sendIdentityNow() below relies on exactly this to flush a final
+// save under the OLD id before the room forgets it.
+function sendProgressNow() {
+  if (!room) return
+  try {
+    room.send('saveProgress', progressPayload())
+  } catch {
+    // Socket mid-close — teardown() already tried to flush before this point.
+  }
+}
+
+// Same "schedule once, ride out further triggers until it fires" shape as
+// scheduleStatsResend, just a longer window (PROGRESS_RESEND_DEBOUNCE_MS) —
+// this hits Mongo on the other end, not just an in-memory schema field, and a
+// save a few seconds behind is harmless since teardown() flushes once more on
+// the way out.
+function scheduleProgressResend() {
+  if (progressResendTimer) return
+  progressResendTimer = setTimeout(() => {
+    progressResendTimer = 0
+    sendProgressNow()
+  }, PROGRESS_RESEND_DEBOUNCE_MS)
+}
+
+// Cheap snapshot string for change detection — same purpose as
+// lastScheduledStats above, just covering the extra owned/equipped fields
+// stats doesn't carry.
+let lastScheduledProgress = ''
+
+function onLocalStoreChangeProgress(state) {
+  if (!getStableUserId()) return
+  const snap = JSON.stringify([
+    state.power,
+    state.rebirth,
+    state.wins,
+    state.equippedHexPad,
+    state.equippedAura,
+    state.ownedHexPads.size,
+    state.ownedAuras.size,
+    state.ownedTargets.size,
+  ])
+  if (snap !== lastScheduledProgress) {
+    lastScheduledProgress = snap
+    scheduleProgressResend()
+  }
+}
+
+// Applied at most once per page session: the FIRST successful attach's
+// `progress` message is the real load from this player's save. A later
+// reattach (a full drop + fresh joinOrCreate, not the SDK's own buffered
+// reconnection) would otherwise re-fetch a possibly-stale Mongo snapshot and
+// clobber whatever the player did locally during the blip — our own store is
+// already the source of truth by then, and the next scheduled saveProgress
+// writes it back over Mongo regardless.
+let hydratedFromServer = false
+
+// --- Identity sync (login/logout mid-session) ----------------------------
+// join options only carry whatever username/userId was true the instant the
+// socket opened. Bloxity auth routinely settles AFTER that (or changes later
+// via login/logout without a page reload), so without this, ArenaRoom.ts's
+// userIds map would stay stuck on whatever was true at join forever — a
+// player who joined as a guest and later signed in would see their real name
+// on their OWN leaderboard row (currentUsername() is read live in
+// getLeaderboard() below) while `saveProgress` silently no-oped server-side
+// for their whole session, since the room never learned their userId. That
+// was the actual bug: progress looked like it was being tracked but never
+// reached Mongo, so it was always gone on the next refresh.
+let lastIdentity = { userId: '', username: '' }
+
+function sendIdentityNow() {
+  if (!room) return
+  const prevUserId = lastIdentity.userId
+  const userId = getStableUserId()
+  const username = currentUsername()
+  if (userId === prevUserId && username === lastIdentity.username) return
+
+  // Logging out (or switching accounts) — flush this session's progress
+  // under the OLD id before the room forgets it below; once it does,
+  // saveProgress can no longer reach that document.
+  if (prevUserId && prevUserId !== userId) sendProgressNow()
+  // A freshly-signed-in id gets its saved doc hydrated again, same as a
+  // brand-new join — see hydratedFromServer's own comment.
+  if (userId && userId !== prevUserId) hydratedFromServer = false
+
+  lastIdentity = { userId, username }
+  try {
+    room.send('identify', { userId, username })
+  } catch {
+    // Socket mid-close — the next attach re-seeds via join options anyway.
+  }
+}
+
 // --- PVP health sync ----------------------------------------------------
 // Our own respawn (systems/playerHealth.js) -> the room. Damage itself is
 // sent from the ATTACKER's client (see sendPlayerDamage below), not from
@@ -337,6 +459,9 @@ async function connect() {
       client.joinOrCreate(ROOM_NAME, {
         username: currentUsername(),
         avatar: avatarPayload(),
+        // Empty string for a guest — ArenaRoom.ts's onJoin treats a falsy
+        // userId as "nothing to load/save", same as every other field here.
+        userId: getStableUserId(),
       }),
       JOIN_TIMEOUT_MS,
       'join timed out',
@@ -389,6 +514,15 @@ function attachRoom(joined) {
     netState.error = message || `error ${code}`
   })
 
+  // The saved doc for our own Bloxity user id (ArenaRoom.ts's onJoin ->
+  // loadProgress()), sent once right after this join resolves. See
+  // hydratedFromServer's own comment for why only the FIRST attach applies it.
+  room.onMessage('progress', (msg) => {
+    if (hydratedFromServer) return
+    hydratedFromServer = true
+    useGameStore.getState().hydrate(msg)
+  })
+
   // Re-send our avatar on every (re)attach — the join options already carried
   // it, but a fresh joinOrCreate after a drop needs it re-stated on the new
   // session, and a server that predates the `avatar` field just ignores this.
@@ -397,6 +531,11 @@ function attachRoom(joined) {
   // schema default (0), so a rejoin needs its current power/rebirth/wins
   // re-stated immediately rather than waiting for the next store change.
   sendStatsNow()
+  // The join options already carried whatever identity was true the instant
+  // we connected — seed lastIdentity to match so sendIdentityNow() (fired
+  // from the subscribeAuth callback below) only resends on a REAL change
+  // after this point, not an immediate redundant duplicate of the join.
+  lastIdentity = { userId: getStableUserId(), username: currentUsername() }
 
   recount()
   setStatus('online')
@@ -427,6 +566,8 @@ function recount() {
 // --- Public lifecycle -------------------------------------------------
 let offAvatar = null
 let offStats = null
+let offProgress = null
+let offIdentity = null
 let offHealthNet = null
 
 export function init() {
@@ -440,6 +581,14 @@ export function init() {
   // Our own power/rebirth/wins -> the room, debounced (see scheduleStatsResend).
   // A no-op while offline; the next attach re-seeds via sendStatsNow().
   if (!offStats) offStats = useGameStore.subscribe(onLocalStoreChange)
+  // Our own durable save -> the room, debounced (see scheduleProgressResend).
+  // A no-op for a guest or while offline; see progressPayload()'s own comment.
+  if (!offProgress) offProgress = useGameStore.subscribe(onLocalStoreChangeProgress)
+  // Login/logout/account-switch -> the room, immediately (see
+  // sendIdentityNow()'s own comment for why this exists). subscribeAuth also
+  // fires on friends/balance/avatar loads, not just identity changes;
+  // sendIdentityNow()'s own diff check is what filters those out.
+  if (!offIdentity) offIdentity = subscribeAuth(() => sendIdentityNow())
   // Our own PVP respawn -> the room. A no-op while offline; harmless if it
   // never sends (there's no server hp to reconcile against without a room).
   if (!offHealthNet) offHealthNet = subscribeHealthNet(onLocalHealthEvent)
@@ -457,6 +606,8 @@ export function teardown() {
   avatarResendTimer = 0
   clearTimeout(statsResendTimer)
   statsResendTimer = 0
+  clearTimeout(progressResendTimer)
+  progressResendTimer = 0
   if (offAvatar) {
     offAvatar()
     offAvatar = null
@@ -465,10 +616,22 @@ export function teardown() {
     offStats()
     offStats = null
   }
+  if (offProgress) {
+    offProgress()
+    offProgress = null
+  }
+  if (offIdentity) {
+    offIdentity()
+    offIdentity = null
+  }
   if (offHealthNet) {
     offHealthNet()
     offHealthNet = null
   }
+  // Final best-effort save before the socket closes — a page unload can't
+  // wait on PROGRESS_RESEND_DEBOUNCE_MS, and room.send() is fire-and-forget
+  // (no ack needed) so this never delays the leave() right after it.
+  sendProgressNow()
   if (room) {
     try {
       // Stop the SDK from trying to reconnect a socket we are deliberately

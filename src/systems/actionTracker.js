@@ -11,14 +11,18 @@
 // are in the PVP zone, else systems/wallHealth.js's strikeWall()): the click
 // hit on the press edge, then one more per hold interval — so whatever's on
 // the beam loses health per Action, the same cadence gainPower() adds Power
-// on.
+// on. Both are throttled to that one-per-ACTION_HOLD_INTERVAL cadence
+// (strikeThrottled/gainPowerThrottled below), so spam-clicking can't land
+// strikes — or drain a wall — any faster than a held beam would.
 import { inputState } from './input.js'
 import { afkState } from './afk.js'
+import { player } from './playerState.js'
 import { spawnActionPopup } from './actionPopups.js'
 import { strikeTarget } from './playerCombat.js'
 import { health as playerHealth } from './playerHealth.js'
 import { useGameStore } from '../store/useGameStore.js'
 import { ACTION_HOLD_INTERVAL } from '../data/progression.js'
+import { isInsideSummitZone, PVP_CENTER_SUMMIT_POWER_MULT } from '../data/pvpCenterPentagon.js'
 import { playLaserPulse } from './sfx.js'
 
 let firingPrev = false
@@ -34,13 +38,37 @@ let lastProcessedPressSeq = 0
 // first Action isn't held back.
 let sinceLastGain = ACTION_HOLD_INTERVAL
 
+// Same idea, for the wall/PVP strike. Without its own cooldown, spam-clicking
+// would land a strikeTarget() hit on every press edge (below) even though
+// gainPowerThrottled caps Power to one grant per ACTION_HOLD_INTERVAL — free
+// wall/PVP damage disproportionate to the Power actually gained. Kept as a
+// separate counter from sinceLastGain since the two fire at different points
+// in a click (strike on press, Power on release) but share the same cadence.
+let sinceLastStrike = ACTION_HOLD_INTERVAL
+
 // Only actually grants Power once ACTION_HOLD_INTERVAL has passed since the
 // last grant, click or hold alike — one shared cadence no matter how fast the
 // player clicks. Callers still land the wall/PVP strike unconditionally.
+// Stacks the King of the Hill summit bonus (data/pvpCenterPentagon.js's
+// isInsideSummitZone/PVP_CENTER_SUMMIT_POWER_MULT — the "350% Strength!" sign
+// floating in the glass cylinder atop the PVP pentagon) on top of whatever
+// multiplier the caller already worked out (1x for a click/release, the AFK
+// target's own xN tier for a hold) — same commuted-into-one-factor product
+// gainPower() floors, just folded in here instead of duplicating its math.
 function gainPowerThrottled(multiplier) {
   if (sinceLastGain < ACTION_HOLD_INTERVAL) return 0
   sinceLastGain = 0
-  return useGameStore.getState().gainPower(multiplier)
+  const summitMult = isInsideSummitZone(player.position) ? PVP_CENTER_SUMMIT_POWER_MULT : 1
+  return useGameStore.getState().gainPower(multiplier * summitMult)
+}
+
+// Mirrors gainPowerThrottled above, for strikeTarget(): one shared cadence no
+// matter how fast the player clicks, so spam-clicking can't out-damage a
+// held beam.
+function strikeThrottled() {
+  if (sinceLastStrike < ACTION_HOLD_INTERVAL) return
+  sinceLastStrike = 0
+  strikeTarget()
 }
 
 export function step(dt) {
@@ -50,6 +78,7 @@ export function step(dt) {
     return
   }
   sinceLastGain += dt
+  sinceLastStrike += dt
 
   // inputState.firePressSeq is bumped synchronously in the real pointerdown
   // handler, so a press-and-release that both happen between two polls of
@@ -83,7 +112,7 @@ export function step(dt) {
     // aim). A press that turns into a hold keeps taking one strike per
     // ACTION_HOLD_INTERVAL below, so a held wall drains at t=0, 2, 4, ...
     if (!firingPrev) {
-      strikeTarget()
+      strikeThrottled()
       playLaserPulse()
     }
     pressElapsed += dt
@@ -92,7 +121,7 @@ export function step(dt) {
     // tier (systems/afk.js); a real held mouse press is always 1x.
     const mult = afkState.active ? afkState.multiplier : 1
     while (sinceLastAction >= ACTION_HOLD_INTERVAL) {
-      strikeTarget()
+      strikeThrottled()
       spawnActionPopup(gainPowerThrottled(mult))
       sinceLastAction -= ACTION_HOLD_INTERVAL
       holdFiredDuringPress = true

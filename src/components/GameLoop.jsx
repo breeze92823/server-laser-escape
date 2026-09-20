@@ -8,10 +8,12 @@ import { step as stepActionPopups } from '../systems/actionPopups.js'
 import { step as stepAfk } from '../systems/afk.js'
 import { step as stepHexPowerPad } from '../systems/hexPowerPad.js'
 import { step as stepMerchant } from '../systems/merchant.js'
+import { step as stepInteract } from '../systems/interact.js'
 import { step as stepGlowFloorPanel } from '../systems/glowFloorPanel.js'
 import { step as stepLaser } from '../systems/laser.js'
 import { step as stepLaserParticles } from '../systems/laserParticles.js'
 import { step as stepAuraParticles } from '../systems/auraParticles.js'
+import { step as stepUltraInstinctAura } from '../systems/ultraInstinctAura.js'
 import { step as stepWallHealth } from '../systems/wallHealth.js'
 import { step as stepPlayerHealth, health as playerHealthState } from '../systems/playerHealth.js'
 import { step as stepPlayerCombat } from '../systems/playerCombat.js'
@@ -44,11 +46,16 @@ export default function GameLoop() {
     stepAfk()
     stepHexPowerPad()
     stepMerchant()
+    // Resolves which (if any) of the three proximity zones above is the
+    // shared hold-to-confirm gate's current target, and fires that zone's
+    // action once the player has held E against it for HOLD_MS (systems/
+    // interactHold.js) — see systems/interact.js for the priority order.
+    stepInteract()
     stepGlowFloorPanel()
-    // None of the systems above claimed a press outside its own zone (each
-    // only clears inputState.interact when the player is actually in range
-    // of what it handles) — reset it here so a press near nothing never
-    // lingers into a later frame and fires something the player didn't aim at.
+    // afk.js's own "E again to stop" toggle is the only thing left reading
+    // inputState.interact directly, and already clears it when it fires —
+    // reset here so a press that toggled nothing never lingers into a later
+    // frame.
     inputState.interact = false
     // Laser aim first, then PVP hit-testing (which may clip the beam onto a
     // player it found), then stepAction — which reads this frame's result to
@@ -64,6 +71,7 @@ export default function GameLoop() {
     stepRagdoll(dt)
     stepLaserParticles(dt)
     stepAuraParticles(dt)
+    stepUltraInstinctAura(dt)
     // Multiplayer presence: advance remote-body interpolation, then relay our
     // own transform + beam (throttled inside net.js). A no-op while offline —
     // the game never waits on the socket (systems/net.js).

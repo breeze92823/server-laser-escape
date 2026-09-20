@@ -84,6 +84,13 @@ export const AVATAR_RESEND_DEBOUNCE_MS = 600
 // rank, not a per-gain packet.
 export const STATS_RESEND_DEBOUNCE_MS = 1_000
 
+// Debounce on re-sending the signed-in player's durable save (server
+// systems/db.ts's `players` collection, via ArenaRoom.ts's `saveProgress`) —
+// longer than STATS_RESEND_DEBOUNCE_MS since this hits Mongo, not just an
+// in-memory schema field, and a save a second behind is harmless (the next
+// change reschedules it, and teardown() flushes one final time on the way out).
+export const PROGRESS_RESEND_DEBOUNCE_MS = 3_000
+
 // Wait up to this long for the Bloxity auth state to settle before the first
 // connect, so a signed-in player joins under their real name rather than the
 // "Player" fallback. Not waited on reconnects.

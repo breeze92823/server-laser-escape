@@ -156,6 +156,26 @@ export const PVP_CENTER_SUMMIT_DISC_POSITION = PVP_CENTER_CYLINDER_POSITION
 // this one a dedicated untextured material instead of PentagonSlab's.
 export const PVP_CENTER_SUMMIT_DISC_OPACITY = 0.35
 
+// The Power-gain bonus PVP_CENTER_SIGN's subtitle below promises: "inside the
+// glass cylinder" means inside this disc's own footprint, so the check is the
+// same distance-in-XZ/range-in-Y test as any round collider in this file,
+// just never registered as one — the disc stays walk-through by design (see
+// this section's own header note), so isInsideSummitZone() only gates
+// systems/actionTracker.js's Power grant, never movement.
+const SUMMIT_ZONE_MIN_Y = PVP_CENTER_SUMMIT_DISC_POSITION[1] - PVP_CENTER_SUMMIT_DISC_HEIGHT / 2
+const SUMMIT_ZONE_MAX_Y = PVP_CENTER_SUMMIT_DISC_POSITION[1] + PVP_CENTER_SUMMIT_DISC_HEIGHT / 2
+const SUMMIT_ZONE_RADIUS_SQ = PVP_CENTER_SUMMIT_DISC_RADIUS * PVP_CENTER_SUMMIT_DISC_RADIUS
+export function isInsideSummitZone({ x, y, z }) {
+  const dx = x - PVP_CENTER_SUMMIT_DISC_POSITION[0]
+  const dz = z - PVP_CENTER_SUMMIT_DISC_POSITION[2]
+  return dx * dx + dz * dz <= SUMMIT_ZONE_RADIUS_SQ && y >= SUMMIT_ZONE_MIN_Y && y <= SUMMIT_ZONE_MAX_Y
+}
+
+// "350% Strength!" — the factor store/useGameStore.js's gainPower() gets
+// multiplied by (on top of powerPerAction/rebirth/multiplier/auraMult, same
+// floor-then-clamp) while isInsideSummitZone() is true.
+export const PVP_CENTER_SUMMIT_POWER_MULT = 3.5
+
 // In-world signage floating inside the glass disc/shell (Tech.md §1: drei's
 // <Text> + <Billboard> — always turned to face the player, same idea as
 // GlowFloorPanelLabel.jsx's "+N Wins"/"Return" pair). Two lines, no

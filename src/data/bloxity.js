@@ -110,6 +110,25 @@ export const GAIT = {
   bob: 0.06, // m, vertical body bob (two beats per stride)
   swingAxis: 'x', // bone-local axis the limbs swing about; see avatarAnim.js probe
   blendHz: 8, // how fast the cycle eases in/out as speed changes
+
+  // --- Idle: a slow breathing sway when the generated fallback has nothing
+  // else to animate (below is only reached once the walk cycle's own amp has
+  // eased down to ~0) -----------------------------------------------------
+  swayAxis: 'z', // bone-local axis for the idle arms' lateral sway
+  idleSwayHz: 1.6, // rad/s, the breathing cycle's speed
+  idleArmSway: 0.07, // rad, ArmL1/ArmR1's resting lateral offset
+  idleArmSwayAmp: 0.03, // rad, extra sway riding on top of the offset
+  idleSpineSway: 0.02, // rad, Spine1's breathing tilt
+  idleBob: 0.03, // m, vertical body bob while idle
+
+  // --- Airborne: jumping or falling -----------------------------------
+  airborneLegL: -0.55, // rad, LegL1 swept back
+  airborneLegR: 0.3, // rad, LegR1 swept forward
+  airborneArm: -2.1, // rad, both arms thrown up
+  airborneLean: -0.1, // rad, Spine1 leaned back slightly
+
+  // --- Turning: how fast the visual mesh catches up to player.facing ---
+  turnRate: 0.001, // base of 1 - turnRate^delta; smaller = snappier turn
 }
 
 // --- Settings -------------------------------------------------------------

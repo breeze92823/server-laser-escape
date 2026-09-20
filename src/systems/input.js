@@ -5,7 +5,12 @@
 // orbits on right-drag and there is no OrbitControls.
 import { AFK_INTERACT_KEY } from '../data/afk.js'
 export const inputState = {
-  move: { x: 0, z: 0 }, // x = strafe (+ right), z = forward (+ forward); pre-normalised
+  // x = strafe (+ right), z = forward (+ forward); pre-normalised. Keyboard
+  // only ever writes z now — A/D and the arrow keys turn the camera (see
+  // `turn` below) instead of strafing; touch's virtual joystick is the only
+  // thing that still drives x, straight from setTouchMove.
+  move: { x: 0, z: 0 },
+  turn: 0, // -1 (A/Left) .. +1 (D/Right); held-key camera yaw, consumed by cameraOrbit
   look: { dx: 0, dy: 0 }, // pixels dragged this frame; consumed by cameraOrbit
   zoom: 0, // wheel delta this frame; consumed by cameraOrbit
   pointerNDC: { x: 0, y: 0 }, // mouse position in [-1, 1] clip space; consumed by systems/laser.js
@@ -120,8 +125,19 @@ export function pressTouchJump() {
   inputState.jump = true // consumed + cleared next frame by playerMovement
 }
 
+// Continuous "is the interact key physically held" signal, separate from
+// inputState.interact's one-shot edge flag — systems/interact.js needs this
+// to run its 2-second hold-to-confirm gate, which cares how long the key has
+// been down, not just that it went down once.
+export const touchInteractState = { down: false }
+
 export function pressTouchInteract() {
-  inputState.interact = true // consumed + cleared next frame (afk.js / hexPowerPad.js / GameLoop.jsx)
+  touchInteractState.down = true
+  inputState.interact = true // consumed + cleared next frame (afk.js / GameLoop.jsx) — still edge-triggered for AFK's own "E again to stop" toggle
+}
+
+export function releaseTouchInteract() {
+  touchInteractState.down = false
 }
 
 const held = new Set()
@@ -156,19 +172,21 @@ export function isSuspended() {
 }
 
 function recomputeMove() {
-  let x = 0
   let z = 0
   if (held.has('KeyW') || held.has('ArrowUp')) z += 1
   if (held.has('KeyS') || held.has('ArrowDown')) z -= 1
-  if (held.has('KeyA') || held.has('ArrowLeft')) x -= 1
-  if (held.has('KeyD') || held.has('ArrowRight')) x += 1
-  const len = Math.hypot(x, z)
-  if (len > 0) {
-    x /= len
-    z /= len
-  }
-  inputState.move.x = x
   inputState.move.z = z
+}
+
+// A/D and the left/right arrows turn the camera around the player instead of
+// strafing (see the inputState.move comment above) — held, not edge-
+// triggered, so cameraOrbit can drive a continuous yaw rate while a key is
+// down, the same way a mouse drag does.
+function recomputeTurn() {
+  let t = 0
+  if (held.has('KeyA') || held.has('ArrowLeft')) t -= 1
+  if (held.has('KeyD') || held.has('ArrowRight')) t += 1
+  inputState.turn = t
 }
 
 function onKeyDown(e) {
@@ -182,11 +200,13 @@ function onKeyDown(e) {
   if (e.code === 'Space') inputState.jump = true
   if (e.code === AFK_INTERACT_KEY) inputState.interact = true
   recomputeMove()
+  recomputeTurn()
 }
 
 function onKeyUp(e) {
   held.delete(e.code)
   recomputeMove()
+  recomputeTurn()
 }
 
 function onPointerDown(e) {
@@ -244,7 +264,9 @@ function onBlur() {
   if (inputState.firing) inputState.fireReleaseAt = performance.now()
   inputState.firing = false
   inputState.interact = false
+  touchInteractState.down = false
   recomputeMove()
+  recomputeTurn()
 }
 
 // Live key-held check, for systems (e.g. systems/afk.js) that need to poll a
@@ -252,6 +274,13 @@ function onBlur() {
 // flags (jump/interact), which are consumed and cleared the frame they fire.
 export function isHeld(code) {
   return held.has(code)
+}
+
+// Keyboard hold (the `held` set already tracks KeyE continuously between its
+// keydown and keyup) OR the touch E button currently pressed. See
+// systems/interact.js.
+export function isInteractKeyDown() {
+  return held.has(AFK_INTERACT_KEY) || touchInteractState.down
 }
 
 export function install() {
