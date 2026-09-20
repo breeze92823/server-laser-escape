@@ -18,6 +18,7 @@ import { hexPowerPadState, interactWithNearestPad } from './hexPowerPad.js'
 import { merchantState } from './merchant.js'
 import { step as stepHold } from './interactHold.js'
 import { playPowerGainPop } from './sfx.js'
+import { showActionResult } from './actionResult.js'
 
 export function step() {
   if (afkState.active) {
@@ -34,7 +35,14 @@ export function step() {
   if (!confirmed) return
 
   if (zoneKey.startsWith('afk:')) {
-    if (afkState.nearAllowed) startAfk(afkState.nearTargetId)
+    // The prompt shows "Press E to AFK Here" regardless of eligibility now
+    // (Hud.jsx) — a completed hold against an under-levelled target reports
+    // the gate through ActionResult instead of silently doing nothing.
+    if (afkState.nearAllowed) {
+      startAfk(afkState.nearTargetId)
+    } else {
+      showActionResult(`Rebirth ${afkState.nearRebirthRequired} required`, false)
+    }
   } else if (zoneKey.startsWith('hexPad:')) {
     interactWithNearestPad()
   } else if (zoneKey === 'merchant') {

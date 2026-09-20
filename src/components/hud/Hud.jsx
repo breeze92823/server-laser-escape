@@ -9,7 +9,6 @@ import { health as playerHealth } from '../../systems/playerHealth.js'
 import { playButtonClick } from '../../systems/sfx.js'
 import { useGameStore } from '../../store/useGameStore.js'
 import { canAcceptRebirth, rebirthRequirement } from '../../data/progression.js'
-import { HEX_POWER_PAD_TIERS } from '../../data/hexPowerPad.js'
 import { AURA_TIERS } from '../../data/aura.js'
 import { SHOP_ITEMS } from '../../data/shop.js'
 import ActionPopups from './ActionPopups.jsx'
@@ -21,6 +20,8 @@ import LevelUpPopup from './LevelUpPopup.jsx'
 import NetStatus from './NetStatus.jsx'
 import AuthPanel from './AuthPanel.jsx'
 import IdentityChip from './IdentityChip.jsx'
+import ActionResult from './ActionResult.jsx'
+import { actionResultState } from '../../systems/actionResult.js'
 import { useSettings, useTouchMode } from './hooks.js'
 
 // 1000 -> "1K", 1500 -> "1.5K", 2_000_000 -> "2M". Trims a trailing ".0".
@@ -813,6 +814,22 @@ export default function Hud() {
   const hexPadPromptRef = useRef(null)
   const merchantPromptRef = useRef(null)
   const deathPromptRef = useRef(null)
+  const actionResultRef = useRef(null)
+
+  // systems/actionResult.js's showActionResult() (called from systems/
+  // interact.js and systems/hexPowerPad.js on a failed/succeeded held-E
+  // attempt) — same throttled-poll pattern as the prompts below, comparing
+  // against the singleton's `id` so a repeat of the same message still
+  // re-triggers the popup instead of being mistaken for no change.
+  useEffect(() => {
+    let lastId = actionResultState.id
+    const intervalId = setInterval(() => {
+      if (actionResultState.id === lastId) return
+      lastId = actionResultState.id
+      actionResultRef.current?.show(actionResultState.text, actionResultState.success)
+    }, 100)
+    return () => clearInterval(intervalId)
+  }, [])
 
   // Dead in the PVP zone (systems/playerHealth.js) — a countdown to the
   // respawn that system's own step() runs, same throttled-poll pattern as
@@ -842,11 +859,10 @@ export default function Hud() {
       if (afkState.active) {
         prompt.setText('AFK firing — move or press Space to stop (E to stop)')
       } else if (afkState.nearTargetId) {
-        prompt.setText(
-          afkState.nearAllowed
-            ? 'Press E to AFK Here'
-            : `Rebirth ${afkState.nearRebirthRequired} required to AFK here`,
-        )
+        // Shown even below the target's rebirth requirement — holding E
+        // through an ineligible target reports the gate via ActionResult
+        // (systems/interact.js) instead of blocking the prompt up front.
+        prompt.setText('Press E to AFK Here')
       } else {
         prompt.setText(null)
       }
@@ -868,14 +884,15 @@ export default function Hud() {
         prompt.setText(null)
         return
       }
-      const { ownedHexPads, equippedHexPad, wins } = useGameStore.getState()
-      const tier = HEX_POWER_PAD_TIERS[index]
+      const { ownedHexPads, equippedHexPad } = useGameStore.getState()
       if (ownedHexPads.has(index)) {
         prompt.setText(equippedHexPad === index ? null : 'Press E to Equip Laser')
-      } else if (wins >= tier.winsRequired) {
-        prompt.setText('Press E to Buy Laser')
       } else {
-        prompt.setText(`Need ${tier.winsRequired} Wins to Buy`)
+        // Shown even below the pad's Wins requirement — holding E through an
+        // unaffordable pad reports the gate via ActionResult (systems/
+        // interact.js -> hexPowerPad.js) instead of blocking the prompt up
+        // front.
+        prompt.setText('Press E to Buy Laser')
       }
       prompt.setHoldProgress(interactHoldState.progress)
     }, 100)
@@ -934,6 +951,11 @@ export default function Hud() {
       <IdentityChip panelStyle={panelStyle} />
 
       <AuthPanel panelStyle={panelStyle} />
+
+      {/* Top-centre buy/equip/lock-on result popup — green on success, red
+         with the reason on failure (insufficient Rebirth/Wins). Driven
+         imperatively via actionResultRef; see ActionResult.jsx. */}
+      <ActionResult ref={actionResultRef} />
 
       {/* Bottom-centre level progress bar. DOM sibling of the canvas, written
          from a throttled store subscription — never re-renders per frame

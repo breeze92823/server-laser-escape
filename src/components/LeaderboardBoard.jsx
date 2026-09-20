@@ -43,7 +43,6 @@ import {
   NAME_TEXT_X,
   SCORE_TEXT_X,
   getRowLayout,
-  LEADERBOARD_TIMER_TEXT,
   TIMER_FONT_SIZE,
   TIMER_Y,
 } from '../data/leaderboardBoard.js'
@@ -227,8 +226,10 @@ function Row({ rank, name, score, isSelf }) {
 }
 
 // The footer timer strip: a small dark chip with two bright glow bars either
-// side of the label (the reference image's countdown strip). Static text
-// (data/leaderboardBoard.js LEADERBOARD_TIMER_TEXT), not a live countdown.
+// side of the label (the reference image's countdown strip). The label
+// itself (data/leaderboardBoard.js LEADERBOARD_TIMER_TEXT) is hidden for
+// now — it was static "101s" text, not a live countdown, and read as
+// misleading. Chip + bars stay so the footer slot doesn't visibly change.
 function TimerChip() {
   const chipWidth = PANEL_WIDTH * 0.62
   const chipHeight = TIMER_FONT_SIZE * 1.8
@@ -246,16 +247,6 @@ function TimerChip() {
           <meshBasicMaterial color={LEADERBOARD_COLORS.timerGlow} toneMapped={false} />
         </mesh>
       ))}
-      <Text
-        position={[0, 0, TEXT_Z]}
-        fontSize={TIMER_FONT_SIZE}
-        fontWeight="bold"
-        color={LEADERBOARD_COLORS.timerGlow}
-        anchorX="center"
-        anchorY="middle"
-      >
-        {LEADERBOARD_TIMER_TEXT}
-      </Text>
     </group>
   )
 }

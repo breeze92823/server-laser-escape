@@ -8,6 +8,7 @@
 import { player } from './playerState.js'
 import { useGameStore } from '../store/useGameStore.js'
 import { playPowerGainPop } from './sfx.js'
+import { showActionResult } from './actionResult.js'
 import { HEX_POWER_PAD_POSITIONS, HEX_POWER_PAD_TIERS, HEX_POWER_PAD_RANGE } from '../data/hexPowerPad.js'
 
 export const hexPowerPadState = {
@@ -37,11 +38,12 @@ export function step() {
 }
 
 // Called by systems/interact.js once a hold against this pad's zone
-// completes. Does nothing if the pad is already equipped, or the player
-// can't yet afford it — same "consume on zone entry, not on effect" shape
-// the old edge-triggered version had. Reuses sfx.js's power-gain "pop" for
-// an actual buy or equip, same confirmation sound the "+N" popups already
-// use — nothing plays when the hold completes but neither branch fires.
+// completes. Does nothing if the pad is already equipped. The prompt shows
+// "Press E to Buy Laser" regardless of affordability now (Hud.jsx), so a
+// completed hold against a pad the player can't yet afford reports that
+// through ActionResult instead of silently doing nothing; a successful buy
+// or equip reports through ActionResult too (green), not just the shared
+// power-gain "pop" sfx.js already plays for both.
 export function interactWithNearestPad() {
   const index = hexPowerPadState.nearIndex
   if (index === null) return
@@ -51,12 +53,17 @@ export function interactWithNearestPad() {
     if (state.equippedHexPad !== index) {
       state.equipHexPad(index)
       playPowerGainPop()
+      showActionResult('Laser Equipped', true)
     }
   } else {
     const tier = HEX_POWER_PAD_TIERS[index]
-    if (tier && state.wins >= tier.winsRequired) {
+    if (!tier) return
+    if (state.wins >= tier.winsRequired) {
       state.buyHexPad(index)
       playPowerGainPop()
+      showActionResult(`Laser Purchased! +${tier.powerPerAction} Power`, true)
+    } else {
+      showActionResult(`Need ${tier.winsRequired} Wins to Buy`, false)
     }
   }
 }
