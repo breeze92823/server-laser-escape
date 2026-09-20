@@ -54,6 +54,8 @@ function describe(s) {
   return null
 }
 
+const SHOW_STATUS = import.meta.env.VITE_ENVIRONMENT === 'Development'
+
 export default function NetStatus() {
   const [, bump] = useReducer((n) => n + 1, 0)
   const [dismissed, setDismissed] = useState(false)
@@ -68,7 +70,7 @@ export default function NetStatus() {
     [],
   )
 
-  const view = describe(netState)
+  const view = SHOW_STATUS ? describe(netState) : null
 
   // Auto-hide the "connected, nobody else here" confirmation after a few
   // seconds; every other state stays until it changes.
