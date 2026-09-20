@@ -23,10 +23,11 @@ function rebuildGateVariant() {
   liveAabbsGateClosed = [...liveAabbs, PVP_GATE_AABB]
 }
 
-// The zone only opens at exactly rebirth 1 (data/pvpWall.js's sign text) —
-// not "1 or more" — per the design call this gate implements.
+// The zone opens at rebirth 1 and stays open for every rebirth after that
+// (data/pvpWall.js's sign text: "UNLOCKABLE ON REBIRTH 1") — rebirth 0 is the
+// only locked-out case.
 export function getAabbs() {
-  return useGameStore.getState().rebirth === 1 ? liveAabbs : liveAabbsGateClosed
+  return useGameStore.getState().rebirth >= 1 ? liveAabbs : liveAabbsGateClosed
 }
 
 // The convex-polygon collider list (data/hub.js's HUB_POLYGONS — currently
