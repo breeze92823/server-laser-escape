@@ -21,7 +21,10 @@ jobs:
       - name: Build
         run: npm run build
         env:
-          VITE_SERVER_URL: ${{ secrets.MULTIPLAYER_SERVER_URL }}
+          # main -> prod's own multiplayer backend; every other branch (dev
+          # included) keeps using the dev one. Two separate repo secrets so
+          # prod players are never routed onto the dev Colyseus instance.
+          VITE_SERVER_URL: ${{ github.ref_name == 'main' && secrets.MULTIPLAYER_SERVER_URL_PROD || secrets.MULTIPLAYER_SERVER_URL_DEV }}
 
       - name: Zip build
         run: cd dist && zip -r ../build.zip . && cd ..
