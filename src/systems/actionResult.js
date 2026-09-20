@@ -1,3 +1,5 @@
+import { playActionFail } from './sfx.js'
+
 // Shared trigger for the top-center ActionResult HUD popup
 // (components/hud/ActionResult.jsx) — framework-free singleton in the same
 // style as afkState/hexPowerPadState/merchantState, since the calls into
@@ -15,4 +17,5 @@ export function showActionResult(text, success) {
   actionResultState.text = text
   actionResultState.success = success
   actionResultState.id++
+  if (!success) playActionFail()
 }

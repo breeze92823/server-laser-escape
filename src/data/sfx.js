@@ -47,6 +47,26 @@ export const LEVEL_UP_SYNTH_DECAY_S = 0.22
 export const LEVEL_UP_SYNTH_SHIMMER_RATIO = 2.01 // detuned octave-up layer per note, slightly sharp for shimmer
 export const LEVEL_UP_SYNTH_SHIMMER_GAIN = 0.18 // 0..1, mixed under each note's fundamental
 
+// One-shot fired whenever systems/actionResult.js's showActionResult() is
+// called with success=false (a blocked held-E attempt: insufficient Rebirth
+// at an AFK target, insufficient Wins at a HexPower pad — see systems/afk.js
+// and systems/hexPowerPad.js) — the failure counterpart to POWER_GAIN_GAIN's
+// success "pop" above. No real file has been dropped at this path yet, so
+// systems/sfx.js's playActionFail() synthesizes it via WebAudio instead (see
+// ACTION_FAIL_SYNTH_* below). Drop a real file here and swap playActionFail()
+// over to load it, same as LEVEL_UP_SOUND_URL above.
+export const ACTION_FAIL_SOUND_URL = '/audio/action_fail.mp3'
+export const ACTION_FAIL_GAIN = 0.14 // 0..1, multiplies on top of the master volume bus
+
+// Synthesized stopgap "buzz": two short descending square-wave notes (systems/
+// sfx.js's synthesizeActionFailBuffer()), rendered once via OfflineAudioContext
+// and cached like a decoded file. Delete these and the synthesis code the
+// moment action_fail.mp3 exists — see the note above.
+export const ACTION_FAIL_SYNTH_NOTES_HZ = [220, 164.81] // A3 down to E3
+export const ACTION_FAIL_SYNTH_NOTE_GAP_S = 0.09 // time between each note's start
+export const ACTION_FAIL_SYNTH_ATTACK_S = 0.004
+export const ACTION_FAIL_SYNTH_DECAY_S = 0.16
+
 // Fired on every HUD button press (components/hud/Hud.jsx) — Aura/Shop/
 // Rebirth open, buy/equip tier, confirm/close/skip. No real file has been
 // dropped at this path yet, so systems/sfx.js's playButtonClick() synthesizes
