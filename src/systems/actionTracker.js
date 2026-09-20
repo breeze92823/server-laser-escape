@@ -16,11 +16,13 @@
 // strikes — or drain a wall — any faster than a held beam would.
 import { inputState } from './input.js'
 import { afkState } from './afk.js'
+import { player } from './playerState.js'
 import { spawnActionPopup } from './actionPopups.js'
 import { strikeTarget } from './playerCombat.js'
 import { health as playerHealth } from './playerHealth.js'
 import { useGameStore } from '../store/useGameStore.js'
 import { ACTION_HOLD_INTERVAL } from '../data/progression.js'
+import { isInsideSummitZone, PVP_CENTER_SUMMIT_POWER_MULT } from '../data/pvpCenterPentagon.js'
 import { playLaserPulse } from './sfx.js'
 
 let firingPrev = false
@@ -47,10 +49,17 @@ let sinceLastStrike = ACTION_HOLD_INTERVAL
 // Only actually grants Power once ACTION_HOLD_INTERVAL has passed since the
 // last grant, click or hold alike — one shared cadence no matter how fast the
 // player clicks. Callers still land the wall/PVP strike unconditionally.
+// Stacks the King of the Hill summit bonus (data/pvpCenterPentagon.js's
+// isInsideSummitZone/PVP_CENTER_SUMMIT_POWER_MULT — the "350% Strength!" sign
+// floating in the glass cylinder atop the PVP pentagon) on top of whatever
+// multiplier the caller already worked out (1x for a click/release, the AFK
+// target's own xN tier for a hold) — same commuted-into-one-factor product
+// gainPower() floors, just folded in here instead of duplicating its math.
 function gainPowerThrottled(multiplier) {
   if (sinceLastGain < ACTION_HOLD_INTERVAL) return 0
   sinceLastGain = 0
-  return useGameStore.getState().gainPower(multiplier)
+  const summitMult = isInsideSummitZone(player.position) ? PVP_CENTER_SUMMIT_POWER_MULT : 1
+  return useGameStore.getState().gainPower(multiplier * summitMult)
 }
 
 // Mirrors gainPowerThrottled above, for strikeTarget(): one shared cadence no

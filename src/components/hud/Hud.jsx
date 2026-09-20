@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from 'react'
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { afkState } from '../../systems/afk.js'
 import { hexPowerPadState } from '../../systems/hexPowerPad.js'
 import { merchantState } from '../../systems/merchant.js'
+import { interactHoldState } from '../../systems/interactHold.js'
 import { settings } from '../../systems/settingsState.js'
 import { health as playerHealth } from '../../systems/playerHealth.js'
 import { playButtonClick } from '../../systems/sfx.js'
@@ -10,6 +11,7 @@ import { useGameStore } from '../../store/useGameStore.js'
 import { canAcceptRebirth, rebirthRequirement } from '../../data/progression.js'
 import { HEX_POWER_PAD_TIERS } from '../../data/hexPowerPad.js'
 import { AURA_TIERS } from '../../data/aura.js'
+import { SHOP_ITEMS } from '../../data/shop.js'
 import ActionPopups from './ActionPopups.jsx'
 import TouchControls from './TouchControls.jsx'
 import RotatePrompt from './RotatePrompt.jsx'
@@ -191,16 +193,19 @@ function RebirthWindow({ rebirth, canRebirth, onConfirm, onClose, isTouch }) {
 // through three states — mirrors the reference mock the list was built from.
 //   1. Not owned: the wins button (buyAuraTier), disabled until affordable.
 //   2. Owned, not equipped: an "Equip" button (equipAuraTier).
-//   3. Owned and equipped: a non-interactive "Equipped" pill.
+//   3. Owned and equipped: an "Unequip" button (unequipAuraTier) next to the
+//      non-interactive "Equipped" pill.
 // equippedAura is a single store field, so equipping tier N is itself what
 // flips every other tier's button back to "Equip" — each row just compares
-// its own index against the shared equippedAura.
+// its own index against the shared equippedAura. Unequipping sets it back to
+// null (1x, no aura) rather than to another tier.
 function AuraEntry({ tier, index, isTouch }) {
   const wins = useGameStore((s) => s.wins)
   const owned = useGameStore((s) => s.ownedAuras.has(index))
   const equipped = useGameStore((s) => s.equippedAura === index)
   const buyAuraTier = useGameStore((s) => s.buyAuraTier)
   const equipAuraTier = useGameStore((s) => s.equipAuraTier)
+  const unequipAuraTier = useGameStore((s) => s.unequipAuraTier)
   const canAfford = wins >= tier.winsRequired
   const textOutline = { WebkitTextStroke: isTouch ? '1px black' : '1.5px black', paintOrder: 'stroke fill' }
   return (
@@ -259,15 +264,28 @@ function AuraEntry({ tier, index, isTouch }) {
           </button>
         )}
         {owned && equipped && (
-          <button
-            type="button"
-            disabled
-            className={`flex cursor-default items-center gap-1 rounded-md border-2 border-black bg-gradient-to-b from-sky-400 to-blue-600 font-black text-white ${isTouch ? 'px-2 py-0.5 text-xs' : 'px-3 py-1 text-base'}`}
-            style={textOutline}
-          >
-            <span>✓</span>
-            <span>Equipped</span>
-          </button>
+          <>
+            <button
+              type="button"
+              disabled
+              className={`flex cursor-default items-center gap-1 rounded-md border-2 border-black bg-gradient-to-b from-sky-400 to-blue-600 font-black text-white ${isTouch ? 'px-2 py-0.5 text-xs' : 'px-3 py-1 text-base'}`}
+              style={textOutline}
+            >
+              <span>✓</span>
+              <span>Equipped</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                playButtonClick()
+                unequipAuraTier(index)
+              }}
+              className={`flex items-center justify-center rounded-md border-2 border-black bg-gradient-to-b from-rose-400 to-rose-600 font-black text-white transition hover:brightness-110 active:brightness-95 ${isTouch ? 'px-2 py-0.5 text-xs' : 'px-3 py-1 text-base'}`}
+              style={textOutline}
+            >
+              Unequip
+            </button>
+          </>
         )}
         {/* Gem-cost purchase path isn't live yet — hidden until it is
            (data/aura.js still carries gemCost per tier for when it lands). */}
@@ -276,10 +294,131 @@ function AuraEntry({ tier, index, isTouch }) {
   )
 }
 
-// Opened by the Shop button. Shares RebirthWindow's chrome via HudModal —
-// content is intentionally empty for now.
+// Coin glyph for a shop card's price pill. Inline rather than a PNG since
+// it's just a stroked hexagon — one shape, reused at any size.
+function BuxIcon({ className }) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} aria-hidden="true">
+      <path
+        d="M12 2 21 7v10l-9 5-9-5V7z"
+        fill="#f8fafc"
+        stroke="#0f172a"
+        strokeWidth="1.5"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
+// Temporary kill switch for the Bux buy button below: it was already
+// visual-only (systems/bloxity.js's Bux section explains why
+// SDK.bux.requestPurchase isn't called yet — no backend to fulfil it), and
+// is hidden entirely for now on top of that. Flip back to true once Bux
+// purchases are meant to be shown again.
+const BUX_BUY_ENABLED = false
+
+// One SKU in the Shop popup's card row: title banner, icon on a radial-glow
+// backdrop (blank until that SKU's art lands, same convention as
+// AuraEntry's iconUrl), and a buy button. `featured` swaps the gold
+// treatment in for the plain grey one — data/shop.js picks which SKU gets
+// it.
+//
+// The Bux button (BUX_BUY_ENABLED) is visual-only even when shown. The Wins
+// button is real — same amber gradient/🏆/formatCompact and
+// affordability-disable as AuraEntry's wins button above, wired to
+// buyShopItemWithWins.
+function ShopItemCard({ item, isTouch }) {
+  const wins = useGameStore((s) => s.wins)
+  const buyShopItemWithWins = useGameStore((s) => s.buyShopItemWithWins)
+  const canAffordWins = wins >= item.winsRequired
+  const textOutline = { WebkitTextStroke: isTouch ? '1px black' : '1.5px black', paintOrder: 'stroke fill' }
+  return (
+    <div
+      className={`flex flex-1 flex-col overflow-hidden rounded-xl border-2 border-black shadow-[0_4px_0_rgba(0,0,0,0.4)] ${
+        item.featured ? 'bg-gradient-to-b from-amber-300 to-yellow-500' : 'bg-gradient-to-b from-slate-500 to-slate-700'
+      }`}
+    >
+      <div
+        className={`text-center font-black text-white ${isTouch ? 'py-1.5 text-xs' : 'py-2.5 text-lg'}`}
+        style={textOutline}
+      >
+        {item.name}
+      </div>
+
+      <div
+        className={`flex items-center justify-center ${isTouch ? 'h-16' : 'h-28'}`}
+        style={{
+          background: item.featured
+            ? 'radial-gradient(circle, rgba(255,240,150,0.9), rgba(230,170,20,0.5))'
+            : 'radial-gradient(circle, rgba(203,213,225,0.5), rgba(71,85,105,0.4))',
+        }}
+      >
+        {item.iconUrl && (
+          <img
+            src={item.iconUrl}
+            alt=""
+            className={isTouch ? 'h-10 w-10' : 'h-16 w-16'}
+            draggable={false}
+          />
+        )}
+      </div>
+
+      <div className={`flex flex-col items-center ${isTouch ? 'gap-1 p-1.5' : 'gap-1.5 p-2.5'}`}>
+        {BUX_BUY_ENABLED && (
+          <>
+            <button
+              type="button"
+              disabled
+              onClick={() => playButtonClick()}
+              className={`flex w-full items-center justify-center gap-1.5 rounded-lg border-2 border-black bg-gradient-to-b from-lime-400 to-green-600 font-black text-white shadow-[0_3px_0_rgba(0,0,0,0.4)] transition hover:brightness-110 active:brightness-95 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:brightness-100 ${isTouch ? 'py-1 text-sm' : 'py-2 text-lg'}`}
+              style={textOutline}
+            >
+              <BuxIcon className={isTouch ? 'h-4 w-4' : 'h-5 w-5'} />
+              <span>{formatCompact(item.priceBux)}</span>
+            </button>
+
+            <span className={`font-black text-slate-300 ${isTouch ? 'text-[10px]' : 'text-xs'}`}>or</span>
+          </>
+        )}
+
+        <button
+          type="button"
+          onClick={() => {
+            playButtonClick()
+            buyShopItemWithWins(item.id)
+          }}
+          disabled={!canAffordWins}
+          className={`flex w-full items-center justify-center gap-1 rounded-lg border-2 border-black bg-gradient-to-b from-amber-300 to-amber-500 font-black text-white transition hover:brightness-110 active:brightness-95 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:brightness-100 ${isTouch ? 'py-1 text-sm' : 'py-2 text-lg'}`}
+          style={textOutline}
+        >
+          <span>🏆</span>
+          <span>{formatCompact(item.winsRequired)}</span>
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// Opened by the Shop button. Shares RebirthWindow's chrome via HudModal — a
+// row of Bux-priced SKU cards (data/shop.js) plus a thank-you line, same
+// "money-shop" layout as the reference mock this was built from.
 function ShopWindow({ onClose, isTouch }) {
-  return <HudModal title="Shop" onClose={onClose} isTouch={isTouch} />
+  return (
+    <HudModal title="Shop" onClose={onClose} isTouch={isTouch}>
+      <div className={`flex w-full ${isTouch ? 'gap-2' : 'gap-4'}`}>
+        {SHOP_ITEMS.map((item) => (
+          <ShopItemCard key={item.id} item={item} isTouch={isTouch} />
+        ))}
+      </div>
+
+      <div
+        className={`text-center font-black text-white ${isTouch ? 'text-sm' : 'text-xl'}`}
+        style={{ WebkitTextStroke: isTouch ? '1px black' : '1.5px black', paintOrder: 'stroke fill' }}
+      >
+        Thanks for supporting our game 💖
+      </div>
+    </HudModal>
+  )
 }
 
 // Popup for the HUD's Aura button — shares RebirthWindow's chrome via
@@ -543,10 +682,131 @@ function LeftCenterControls() {
   )
 }
 
+// Circumference of the hold-progress ring's r=15 circle (systems/
+// interactHold.js's HOLD_MS gate) — the SVG's stroke-dasharray/dashoffset
+// unit. Drawn from full offset (empty) down to 0 (a full ring) as the hold
+// approaches HOLD_MS.
+const HOLD_RING_RADIUS = 15
+const HOLD_RING_CIRCUMFERENCE = 2 * Math.PI * HOLD_RING_RADIUS
+
+// Every "Press E to ..." (or informational, key-less) proximity prompt —
+// afk/hexPad/merchant below all render one of these. A translucent dark card
+// (backdrop-blur, so the world stays visible through it) with a square "E"
+// keycap next to the label, ringed by the shared hold-to-confirm progress
+// (systems/interactHold.js) — holding E fills the ring over HOLD_MS; an
+// early release snaps it back empty, same as never having pressed at all.
+// Still written imperatively (setText/setHoldProgress, via a ref) on the
+// same ~10Hz poll those callers already ran, so this stays a DOM sibling
+// that never re-renders per frame (Tech.md §5.4) — only the look changed.
+//
+// setText(null) hides it. Otherwise: a message starting with "Press E to "
+// gets the keycap + ring plus the remainder as the label (matching every
+// existing caller's copy); anything else — the AFK-active line, a "Need N
+// Wins"/"Rebirth N required" gate — renders as label-only text, no keycap,
+// since there's no single key (or hold) to point at.
+const InteractPrompt = forwardRef(function InteractPrompt(_props, ref) {
+  const rootRef = useRef(null)
+  const keyWrapRef = useRef(null)
+  const ringRef = useRef(null)
+  const textRef = useRef(null)
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      setText(message) {
+        const root = rootRef.current
+        if (!root) return
+        if (!message) {
+          root.style.display = 'none'
+          return
+        }
+        const prefix = 'Press E to '
+        const isPressE = message.startsWith(prefix)
+        keyWrapRef.current.style.display = isPressE ? '' : 'none'
+        textRef.current.textContent = isPressE ? message.slice(prefix.length) : message
+        root.style.display = ''
+      },
+      // fraction: 0..1, systems/interactHold.js's current progress toward
+      // HOLD_MS. Harmless to call while the keycap/ring is hidden (a
+      // key-less message) — there's nothing on screen for it to affect.
+      // While fraction is above 0 (E is actually being held against this
+      // prompt) the card strips down to just the scaled-up ring + keycap,
+      // with the same translucent backing now cut to a circle sized to just
+      // that ring instead of the full pill — no label, no rectangular card —
+      // and restores everything the instant it drops back to 0, same
+      // reset-on-release the ring itself follows.
+      setHoldProgress(fraction) {
+        const ring = ringRef.current
+        const root = rootRef.current
+        const keyWrap = keyWrapRef.current
+        const text = textRef.current
+        if (!ring || !root || !keyWrap || !text) return
+        const clamped = Math.max(0, Math.min(1, fraction || 0))
+        ring.style.strokeDashoffset = String(HOLD_RING_CIRCUMFERENCE * (1 - clamped))
+        const held = clamped > 0
+        root.classList.toggle('scale-150', held)
+        root.classList.toggle('bg-black/50', !held)
+        root.classList.toggle('backdrop-blur-sm', !held)
+        root.classList.toggle('px-4', !held)
+        root.classList.toggle('py-2', !held)
+        keyWrap.classList.toggle('bg-black/50', held)
+        keyWrap.classList.toggle('backdrop-blur-sm', held)
+        keyWrap.classList.toggle('rounded-full', held)
+        text.style.display = held ? 'none' : ''
+      },
+    }),
+    [],
+  )
+
+  return (
+    <div
+      ref={rootRef}
+      className="pointer-events-none absolute left-1/2 top-[70%] flex -translate-x-1/2 -translate-y-1/2 items-center gap-3 rounded-2xl bg-black/50 px-4 py-2 backdrop-blur-sm transition-all duration-300 ease-[cubic-bezier(0.34,1.56,0.64,1)]"
+      style={{ display: 'none' }}
+    >
+      <span
+        ref={keyWrapRef}
+        className="relative flex h-9 w-9 shrink-0 items-center justify-center transition-colors duration-300"
+      >
+        <svg viewBox="0 0 36 36" className="absolute inset-0 h-9 w-9 -rotate-90">
+          <circle
+            cx="18"
+            cy="18"
+            r={HOLD_RING_RADIUS}
+            fill="none"
+            stroke="rgba(255,255,255,0.25)"
+            strokeWidth="2.5"
+          />
+          <circle
+            ref={ringRef}
+            cx="18"
+            cy="18"
+            r={HOLD_RING_RADIUS}
+            fill="none"
+            stroke="#ffffff"
+            strokeWidth="2.5"
+            strokeLinecap="round"
+            style={{
+              strokeDasharray: HOLD_RING_CIRCUMFERENCE,
+              strokeDashoffset: HOLD_RING_CIRCUMFERENCE,
+              transition: 'stroke-dashoffset 120ms linear',
+            }}
+          />
+        </svg>
+        <span className="relative flex h-5 w-5 items-center justify-center rounded-[5px] border-2 border-white/70 bg-white/10 text-xs font-bold text-white">
+          E
+        </span>
+      </span>
+      <span ref={textRef} className="text-base font-bold tracking-wide text-white" />
+    </div>
+  )
+})
+
 // DOM siblings of the canvas, never drei <Html> (Tech.md §5.4). Must not
-// re-render per frame: the proximity prompts are written to textContent on a
-// ~10Hz interval that reads the singletons directly. React state here is only
-// for panels and portal-driven settings, which change at human speed.
+// re-render per frame: the proximity prompts are written through
+// InteractPrompt's setText ref on a ~10Hz interval that reads the singletons
+// directly. React state here is only for panels and portal-driven settings,
+// which change at human speed.
 export default function Hud() {
   useSettings()
   const afkPromptRef = useRef(null)
@@ -577,19 +837,20 @@ export default function Hud() {
   // React's render loop.
   useEffect(() => {
     const id = setInterval(() => {
-      const el = afkPromptRef.current
-      if (!el) return
+      const prompt = afkPromptRef.current
+      if (!prompt) return
       if (afkState.active) {
-        el.textContent = 'AFK firing — move or press Space to stop (E to stop)'
-        el.style.display = ''
+        prompt.setText('AFK firing — move or press Space to stop (E to stop)')
       } else if (afkState.nearTargetId) {
-        el.textContent = afkState.nearAllowed
-          ? 'Press E to AFK Here'
-          : `Rebirth ${afkState.nearRebirthRequired} required to AFK here`
-        el.style.display = ''
+        prompt.setText(
+          afkState.nearAllowed
+            ? 'Press E to AFK Here'
+            : `Rebirth ${afkState.nearRebirthRequired} required to AFK here`,
+        )
       } else {
-        el.style.display = 'none'
+        prompt.setText(null)
       }
+      prompt.setHoldProgress(interactHoldState.progress)
     }, 100)
     return () => clearInterval(id)
   }, [])
@@ -600,29 +861,23 @@ export default function Hud() {
   // interact-flag handling), so the two never overlap on screen.
   useEffect(() => {
     const id = setInterval(() => {
-      const el = hexPadPromptRef.current
-      if (!el) return
+      const prompt = hexPadPromptRef.current
+      if (!prompt) return
       const index = hexPowerPadState.nearIndex
       if (index === null || afkState.active || afkState.nearTargetId) {
-        el.style.display = 'none'
+        prompt.setText(null)
         return
       }
       const { ownedHexPads, equippedHexPad, wins } = useGameStore.getState()
       const tier = HEX_POWER_PAD_TIERS[index]
       if (ownedHexPads.has(index)) {
-        if (equippedHexPad === index) {
-          el.style.display = 'none'
-        } else {
-          el.textContent = 'Press E to Equip Laser'
-          el.style.display = ''
-        }
+        prompt.setText(equippedHexPad === index ? null : 'Press E to Equip Laser')
       } else if (wins >= tier.winsRequired) {
-        el.textContent = 'Press E to Buy Laser'
-        el.style.display = ''
+        prompt.setText('Press E to Buy Laser')
       } else {
-        el.textContent = `Need ${tier.winsRequired} Wins to Buy`
-        el.style.display = ''
+        prompt.setText(`Need ${tier.winsRequired} Wins to Buy`)
       }
+      prompt.setHoldProgress(interactHoldState.progress)
     }, 100)
     return () => clearInterval(id)
   }, [])
@@ -634,19 +889,15 @@ export default function Hud() {
   // third system too.
   useEffect(() => {
     const id = setInterval(() => {
-      const el = merchantPromptRef.current
-      if (!el) return
-      if (
+      const prompt = merchantPromptRef.current
+      if (!prompt) return
+      const visible =
         merchantState.near &&
         !afkState.active &&
         !afkState.nearTargetId &&
         hexPowerPadState.nearIndex === null
-      ) {
-        el.textContent = 'Press E to Aura'
-        el.style.display = ''
-      } else {
-        el.style.display = 'none'
-      }
+      prompt.setText(visible ? 'Press E to Aura' : null)
+      prompt.setHoldProgress(interactHoldState.progress)
     }, 100)
     return () => clearInterval(id)
   }, [])
@@ -665,23 +916,9 @@ export default function Hud() {
          own Fire/Jump/E buttons sit at z-40 above everything. */}
       <TouchControls />
 
-      <div
-        ref={afkPromptRef}
-        className="pointer-events-none absolute left-1/2 top-[70%] -translate-x-1/2 -translate-y-1/2 rounded bg-black/60 px-3 py-1.5 text-sm text-slate-100"
-        style={{ display: 'none' }}
-      />
-
-      <div
-        ref={hexPadPromptRef}
-        className="pointer-events-none absolute left-1/2 top-[70%] -translate-x-1/2 -translate-y-1/2 rounded bg-black/60 px-3 py-1.5 text-sm text-slate-100"
-        style={{ display: 'none' }}
-      />
-
-      <div
-        ref={merchantPromptRef}
-        className="pointer-events-none absolute left-1/2 top-[70%] -translate-x-1/2 -translate-y-1/2 rounded bg-black/60 px-3 py-1.5 text-sm text-slate-100"
-        style={{ display: 'none' }}
-      />
+      <InteractPrompt ref={afkPromptRef} />
+      <InteractPrompt ref={hexPadPromptRef} />
+      <InteractPrompt ref={merchantPromptRef} />
 
       <div
         ref={deathPromptRef}

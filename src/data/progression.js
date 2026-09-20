@@ -15,21 +15,21 @@ export function envInt(name, fallback) {
 
 export const POWER_INITIAL = envInt('VITE_POWER_INITIAL', 1)
 export const POWER_MIN = 1
-export const POWER_MAX = 10_000
+export const POWER_MAX = 1_000_000_000_000
 
 export const LEVEL_INITIAL = 1
 export const LEVEL_MIN = 1
-export const LEVEL_MAX = 1010
+export const LEVEL_MAX = 50_000
 export const POWER_PER_LEVEL = 50 // level = floor(power / POWER_PER_LEVEL) + 1
 
 export const REBIRTH_INITIAL = envInt('VITE_REBIRTH_INITIAL', 0)
 export const REBIRTH_MIN = 0
-export const REBIRTH_MAX = 100
+export const REBIRTH_MAX = 5000
 export const REBIRTH_LEVEL_STEP = 10 // requirement(rebirth) = (rebirth + 1) * REBIRTH_LEVEL_STEP
 
 export const WINS_INITIAL = envInt('VITE_WINS_INITIAL', 0)
 export const WINS_MIN = 0
-export const WINS_MAX = 100_000_000
+export const WINS_MAX = 1_000_000_000_000
 
 export const POWER_PER_ACTION_INITIAL = 1
 export const POWER_PER_ACTION_MIN = 1

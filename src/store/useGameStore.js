@@ -17,6 +17,7 @@ import {
 } from '../data/progression.js'
 import { HEX_POWER_PAD_TIERS } from '../data/hexPowerPad.js'
 import { AURA_TIERS, auraStrengthMultiplier } from '../data/aura.js'
+import { SHOP_ITEMS } from '../data/shop.js'
 
 // Tech.md §2/§5: THE store — durable state + derive() + all actions. No
 // middleware (no persist, no immer, no subscribeWithSelector).
@@ -149,6 +150,30 @@ export const useGameStore = create((set, get) => ({
     const state = get()
     if (!state.ownedAuras.has(index)) return
     set({ equippedAura: index })
+  },
+
+  // Clears equippedAura back to null (1x, no aura) — only if the given index
+  // is the one currently equipped, so a stale caller can't clobber a tier the
+  // player has since switched to. Hud.jsx's AuraEntry swaps its "Equipped"
+  // pill for an "Unequip" button while owned && equipped, wired to this.
+  unequipAuraTier(index) {
+    const state = get()
+    if (state.equippedAura !== index) return
+    set({ equippedAura: null })
+  },
+
+  // Called from components/hud/Hud.jsx's ShopItemCard "Buy with Wins"
+  // button — the wins-priced alternative to the SKU's (unwired) Bux price,
+  // same affordability-gate-then-spend shape as buyAuraTier/buyHexPad above.
+  // Re-checks affordability itself so a duplicate/stale caller (or a wins
+  // value that has since dropped) can never double-charge or drive wins
+  // negative. These SKUs (data/shop.js) have no owned/equip state of their
+  // own yet, so spending the wins is the whole action for now.
+  buyShopItemWithWins(id) {
+    const state = get()
+    const item = SHOP_ITEMS.find((i) => i.id === id)
+    if (!item || state.wins < item.winsRequired) return
+    set((s) => ({ wins: s.wins - item.winsRequired }))
   },
 
   // Called once from systems/net.js when the server's `progress` message

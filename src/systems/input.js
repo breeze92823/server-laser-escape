@@ -125,8 +125,19 @@ export function pressTouchJump() {
   inputState.jump = true // consumed + cleared next frame by playerMovement
 }
 
+// Continuous "is the interact key physically held" signal, separate from
+// inputState.interact's one-shot edge flag — systems/interact.js needs this
+// to run its 2-second hold-to-confirm gate, which cares how long the key has
+// been down, not just that it went down once.
+export const touchInteractState = { down: false }
+
 export function pressTouchInteract() {
-  inputState.interact = true // consumed + cleared next frame (afk.js / hexPowerPad.js / GameLoop.jsx)
+  touchInteractState.down = true
+  inputState.interact = true // consumed + cleared next frame (afk.js / GameLoop.jsx) — still edge-triggered for AFK's own "E again to stop" toggle
+}
+
+export function releaseTouchInteract() {
+  touchInteractState.down = false
 }
 
 const held = new Set()
@@ -253,6 +264,7 @@ function onBlur() {
   if (inputState.firing) inputState.fireReleaseAt = performance.now()
   inputState.firing = false
   inputState.interact = false
+  touchInteractState.down = false
   recomputeMove()
   recomputeTurn()
 }
@@ -262,6 +274,13 @@ function onBlur() {
 // flags (jump/interact), which are consumed and cleared the frame they fire.
 export function isHeld(code) {
   return held.has(code)
+}
+
+// Keyboard hold (the `held` set already tracks KeyE continuously between its
+// keydown and keyup) OR the touch E button currently pressed. See
+// systems/interact.js.
+export function isInteractKeyDown() {
+  return held.has(AFK_INTERACT_KEY) || touchInteractState.down
 }
 
 export function install() {

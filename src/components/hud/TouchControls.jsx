@@ -9,6 +9,7 @@ import {
   setTouchFiring,
   pressTouchJump,
   pressTouchInteract,
+  releaseTouchInteract,
 } from '../../systems/input.js'
 import { useTouchMode } from './hooks.js'
 
@@ -312,6 +313,7 @@ export default function TouchControls() {
         <div className="flex flex-col gap-3">
           <ActionButton
             onPress={pressTouchInteract}
+            onRelease={releaseTouchInteract}
             size={smallSize}
             label="E"
             sub="USE"
