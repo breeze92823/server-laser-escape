@@ -95,13 +95,6 @@ export default function AuthPanel({ panelStyle }) {
               >
                 Friends
               </button>
-              <button
-                type="button"
-                onClick={logout}
-                className="rounded bg-slate-100/10 px-2 py-1 hover:bg-slate-100/20"
-              >
-                Log out
-              </button>
             </div>
           </>
         )}
