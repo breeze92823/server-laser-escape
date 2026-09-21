@@ -194,6 +194,31 @@ export const useGameStore = create((set, get) => ({
     set((s) => ({ wins: s.wins - item.winsRequired }))
   },
 
+  // Called from systems/net.js's sendIdentityNow() the moment a signed-in
+  // player logs out back to a guest session — a guest has no durable save
+  // (getStableUserId() is '' for one, so progressPayload() never reaches
+  // Mongo for it either), so without this the old account's numbers would
+  // just keep running as if they were free progress on the anonymous session
+  // that follows. Puts every account-scoped field back to the exact defaults
+  // a brand-new guest starts with. World state (destroyedWalls) is untouched
+  // — that belongs to the shared level, not the player's own progress.
+  resetProgress() {
+    set((s) =>
+      derive({
+        ...s,
+        power: POWER_INITIAL,
+        rebirth: REBIRTH_INITIAL,
+        wins: WINS_INITIAL,
+        powerPerAction: POWER_PER_ACTION_INITIAL,
+        ownedHexPads: new Set([0]),
+        equippedHexPad: 0,
+        ownedAuras: new Set(),
+        equippedAura: null,
+        ownedTargets: new Set(),
+      }),
+    )
+  },
+
   // Called once from systems/net.js when the server's `progress` message
   // arrives (server-laser-escape ArenaRoom.ts loadProgress(), the saved doc
   // for this signed-in player's Bloxity user id). Only ever runs at most once

@@ -114,6 +114,14 @@ let attempt = 0
 let retryTimer = 0
 let sdkReconnecting = false // mirrors room.reconnection.isReconnecting
 
+// Server's periodic merge of "every account that ever saved to Mongo" +
+// "everyone online right now" (server ArenaRoom.ts's refreshLeaderboard()),
+// one array per stat. Empty until the first 'leaderboard' message arrives
+// (fresh connect, offline/solo play, or an older server predating this
+// feature) — getLeaderboard() below degrades to a self-only row in that case,
+// same "never blocks gameplay" stance as the rest of this file.
+let globalLeaderboard = { power: [], rebirth: [], wins: [] }
+
 async function loadSdk() {
   if (!sdkModule) sdkModule = await import('@colyseus/sdk')
   return sdkModule
@@ -370,6 +378,11 @@ function sendIdentityNow() {
   // A freshly-signed-in id gets its saved doc hydrated again, same as a
   // brand-new join — see hydratedFromServer's own comment.
   if (userId && userId !== prevUserId) hydratedFromServer = false
+  // Logging out to a guest: nothing durable backs a guest session (see
+  // resetProgress()'s own comment), so the old account's stats shouldn't
+  // carry over and read as free progress on the anonymous session that
+  // follows them.
+  if (prevUserId && !userId) useGameStore.getState().resetProgress()
 
   lastIdentity = { userId, username }
   try {
@@ -523,6 +536,15 @@ function attachRoom(joined) {
     useGameStore.getState().hydrate(msg)
   })
 
+  // The merged all-time + online leaderboard (server ArenaRoom.ts's
+  // refreshLeaderboard(), broadcast every LEADERBOARD_REFRESH_MS). Re-render
+  // the boards on every update via emit() — not per frame, same convention
+  // as every other emit() site in this file.
+  room.onMessage('leaderboard', (msg) => {
+    globalLeaderboard = msg || { power: [], rebirth: [], wins: [] }
+    emit()
+  })
+
   // Re-send our avatar on every (re)attach — the join options already carried
   // it, but a fresh joinOrCreate after a drop needs it re-stated on the new
   // session, and a server that predates the `avatar` field just ignores this.
@@ -547,6 +569,9 @@ function handleLeave() {
   connecting = false
   sdkReconnecting = false
   netState.playerCount = 0
+  // Stale rows from the last session shouldn't linger on the boards while
+  // we're disconnected/retrying; the next attach's first broadcast refills this.
+  globalLeaderboard = { power: [], rebirth: [], wins: [] }
   // Fade every remote out; step() culls them as alpha hits 0.
   for (const e of remotePlayers.values()) e.present = false
 
@@ -645,6 +670,7 @@ export function teardown() {
   room = null
   connecting = false
   remotePlayers.clear()
+  globalLeaderboard = { power: [], rebirth: [], wins: [] }
   netState.playerCount = 0
   setStatus('idle')
 }
@@ -866,26 +892,30 @@ export function step(dt) {
 // --- Leaderboard --------------------------------------------------------
 // Top `limit` players by `stat` ('power' | 'rebirth' | 'wins' — any
 // store/useGameStore.js field), local player included, highest first —
-// components/LeaderboardBoard.jsx's own data source. Always includes us,
-// straight off the live store (no round trip needed for our own numbers)
-// rather than waiting on the room to echo back what we just sent; every
-// other row comes from remotePlayers (see its own comment on the
-// MAX_REMOTE_BODIES cap this inherits). Offline/solo, this is just our own
-// single row — the same "degrades to solo, never blocks" stance as the rest
-// of this file (file header comment).
+// components/LeaderboardBoard.jsx's own data source. Our own row always
+// comes straight off the live store (no round trip needed for our own
+// numbers, and it's always the freshest value there is); every other row
+// comes from globalLeaderboard (server ArenaRoom.ts's refreshLeaderboard() —
+// every account that has EVER saved to Mongo, merged with everyone online
+// right now, logged in or guest). Offline/solo, or before the first
+// broadcast arrives, globalLeaderboard[stat] is empty and this degrades to
+// just our own row — the same "degrades to solo, never blocks" stance as the
+// rest of this file (file header comment).
 export function getLeaderboard(stat, limit) {
-  const rows = [
-    {
-      id: selfId || 'self',
-      name: currentUsername(),
-      value: Number(useGameStore.getState()[stat]) || 0,
-      isSelf: true,
-    },
-  ]
-  for (const [id, e] of remotePlayers) {
-    if (!e.present) continue
-    rows.push({ id, name: e.username || 'Player', value: Number(e[stat]) || 0, isSelf: false })
+  const selfRow = {
+    id: selfId || 'self',
+    name: currentUsername(),
+    value: Number(useGameStore.getState()[stat]) || 0,
+    isSelf: true,
   }
+  // The server already excludes our own account from this list (an online
+  // session's live value replaces its own Mongo doc there), but filtering by
+  // id here too is cheap insurance against ever showing ourselves twice.
+  const others = (globalLeaderboard[stat] || [])
+    .filter((row) => row.id !== selfId)
+    .map((row) => ({ id: row.id, name: row.name || 'Player', value: Number(row.value) || 0, isSelf: false }))
+
+  const rows = [selfRow, ...others]
   rows.sort((a, b) => b.value - a.value)
   return rows.slice(0, limit)
 }
