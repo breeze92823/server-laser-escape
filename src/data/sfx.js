@@ -86,3 +86,26 @@ export const BUTTON_CLICK_SYNTH_ATTACK_S = 0.002
 export const BUTTON_CLICK_SYNTH_DECAY_S = 0.045
 export const BUTTON_CLICK_SYNTH_NOISE_GAIN = 0.22 // 0..1, mixed under the tone
 export const BUTTON_CLICK_SYNTH_NOISE_DECAY_S = 0.02
+
+// One-shot fired the instant a wall's health drains to 0 (systems/
+// wallHealth.js's strikeWall(), right next to spawnDebris()) — lands on the
+// same frame as the debris burst. No real file has been dropped at this path
+// yet, so systems/sfx.js's playWallBreak() synthesizes it via WebAudio
+// instead (see WALL_BREAK_SYNTH_* below). Drop a real file here and swap
+// playWallBreak() over to load it, same as LEVEL_UP_SOUND_URL above.
+export const WALL_BREAK_SOUND_URL = '/audio/wall_break.mp3'
+export const WALL_BREAK_GAIN = 0.26 // 0..1, multiplies on top of the master volume bus
+
+// Synthesized stopgap crash: a falling-pitch sine "thump" for impact weight,
+// layered under a filtered-noise burst whose lowpass sweeps from a bright
+// crack down to a dull rumble as it decays (systems/sfx.js's
+// synthesizeWallBreakBuffer()), rendered once via OfflineAudioContext and
+// cached like a decoded file. Delete these and the synthesis code the moment
+// wall_break.mp3 exists.
+export const WALL_BREAK_SYNTH_THUMP_FREQ_START_HZ = 140
+export const WALL_BREAK_SYNTH_THUMP_FREQ_END_HZ = 45
+export const WALL_BREAK_SYNTH_THUMP_DECAY_S = 0.28
+export const WALL_BREAK_SYNTH_NOISE_DECAY_S = 0.4
+export const WALL_BREAK_SYNTH_NOISE_FILTER_START_HZ = 3500 // Hz, lowpass cutoff at the crack
+export const WALL_BREAK_SYNTH_NOISE_FILTER_END_HZ = 250 // Hz, lowpass cutoff settled into rumble
+export const WALL_BREAK_SYNTH_NOISE_GAIN = 0.9 // 0..1, mixed against the thump

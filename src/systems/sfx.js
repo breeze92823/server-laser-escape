@@ -30,6 +30,14 @@ import {
   ACTION_FAIL_SYNTH_NOTE_GAP_S,
   ACTION_FAIL_SYNTH_ATTACK_S,
   ACTION_FAIL_SYNTH_DECAY_S,
+  WALL_BREAK_GAIN,
+  WALL_BREAK_SYNTH_THUMP_FREQ_START_HZ,
+  WALL_BREAK_SYNTH_THUMP_FREQ_END_HZ,
+  WALL_BREAK_SYNTH_THUMP_DECAY_S,
+  WALL_BREAK_SYNTH_NOISE_DECAY_S,
+  WALL_BREAK_SYNTH_NOISE_FILTER_START_HZ,
+  WALL_BREAK_SYNTH_NOISE_FILTER_END_HZ,
+  WALL_BREAK_SYNTH_NOISE_GAIN,
 } from '../data/sfx.js'
 
 const bufferCache = new Map() // url -> Promise<AudioBuffer|null>
@@ -65,6 +73,7 @@ export function preload() {
   synthesizeLevelUpBuffer(ctx)
   synthesizeButtonClickBuffer(ctx)
   synthesizeActionFailBuffer(ctx)
+  synthesizeWallBreakBuffer(ctx)
 }
 
 // Fire-and-forget: reuses the one decoded buffer, playing a fresh source node
@@ -364,6 +373,88 @@ export function playActionFail() {
     source.buffer = buffer
     const gain = ctx.createGain()
     gain.gain.value = ACTION_FAIL_GAIN
+    source.connect(gain)
+    gain.connect(getMasterBus())
+    source.start(0)
+  })
+}
+
+// Renders the wall-break crash once via OfflineAudioContext and caches the
+// resulting buffer the same way synthesizeActionFailBuffer() does — a
+// falling-pitch sine thump for impact weight, layered under a lowpass-
+// filtered noise burst whose cutoff sweeps from a bright crack down to a
+// dull rumble as it decays (data/sfx.js's WALL_BREAK_SYNTH_* tunables).
+// Stopgap until a real wall_break.mp3 is dropped in; delete this and switch
+// playWallBreak() to loadBuffer() then.
+let wallBreakBufferPromise = null
+
+function synthesizeWallBreakBuffer(ctx) {
+  if (!wallBreakBufferPromise) {
+    const totalS =
+      Math.max(WALL_BREAK_SYNTH_THUMP_DECAY_S, WALL_BREAK_SYNTH_NOISE_DECAY_S) + 0.05
+    const sampleRate = ctx.sampleRate
+    const offline = new OfflineAudioContext(1, Math.ceil(totalS * sampleRate), sampleRate)
+
+    const thump = offline.createOscillator()
+    thump.type = 'sine'
+    thump.frequency.setValueAtTime(WALL_BREAK_SYNTH_THUMP_FREQ_START_HZ, 0)
+    thump.frequency.exponentialRampToValueAtTime(
+      WALL_BREAK_SYNTH_THUMP_FREQ_END_HZ,
+      WALL_BREAK_SYNTH_THUMP_DECAY_S,
+    )
+
+    const thumpGain = offline.createGain()
+    thumpGain.gain.setValueAtTime(1, 0)
+    thumpGain.gain.exponentialRampToValueAtTime(0.001, WALL_BREAK_SYNTH_THUMP_DECAY_S)
+
+    const noiseLength = Math.ceil(WALL_BREAK_SYNTH_NOISE_DECAY_S * sampleRate)
+    const noiseBuffer = offline.createBuffer(1, noiseLength, sampleRate)
+    const noiseData = noiseBuffer.getChannelData(0)
+    for (let i = 0; i < noiseLength; i++) noiseData[i] = Math.random() * 2 - 1
+
+    const noiseSource = offline.createBufferSource()
+    noiseSource.buffer = noiseBuffer
+
+    const noiseFilter = offline.createBiquadFilter()
+    noiseFilter.type = 'lowpass'
+    noiseFilter.Q.value = 0.7
+    noiseFilter.frequency.setValueAtTime(WALL_BREAK_SYNTH_NOISE_FILTER_START_HZ, 0)
+    noiseFilter.frequency.exponentialRampToValueAtTime(
+      WALL_BREAK_SYNTH_NOISE_FILTER_END_HZ,
+      WALL_BREAK_SYNTH_NOISE_DECAY_S,
+    )
+
+    const noiseGain = offline.createGain()
+    noiseGain.gain.setValueAtTime(WALL_BREAK_SYNTH_NOISE_GAIN, 0)
+    noiseGain.gain.exponentialRampToValueAtTime(0.001, WALL_BREAK_SYNTH_NOISE_DECAY_S)
+
+    thump.connect(thumpGain)
+    thumpGain.connect(offline.destination)
+    noiseSource.connect(noiseFilter)
+    noiseFilter.connect(noiseGain)
+    noiseGain.connect(offline.destination)
+
+    thump.start(0)
+    thump.stop(WALL_BREAK_SYNTH_THUMP_DECAY_S + 0.02)
+    noiseSource.start(0)
+
+    wallBreakBufferPromise = offline.startRendering()
+  }
+  return wallBreakBufferPromise
+}
+
+// Fire-and-forget one-shot for a wall's health hitting 0 — called from
+// systems/wallHealth.js's strikeWall() the same instant it calls
+// spawnDebris(), so the crash lands on the same frame as the debris burst.
+export function playWallBreak() {
+  const ctx = unlock()
+  if (!ctx) return
+  synthesizeWallBreakBuffer(ctx).then((buffer) => {
+    if (!buffer) return
+    const source = ctx.createBufferSource()
+    source.buffer = buffer
+    const gain = ctx.createGain()
+    gain.gain.value = WALL_BREAK_GAIN
     source.connect(gain)
     gain.connect(getMasterBus())
     source.start(0)
