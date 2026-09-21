@@ -9,6 +9,10 @@ import {
 import { useAuth } from './hooks.js'
 import FriendsPanel from './FriendsPanel.jsx'
 
+// Dev builds only need a quick way to sign out and re-test the auth flow —
+// skip the balance/avatar/friends chrome and show just the Logout button.
+const DEV_ONLY_LOGOUT = import.meta.env.VITE_ENVIRONMENT === 'Development'
+
 // Renders whatever the single onUserChanged subscription last reported. The
 // user object is never cached here — authState is rewritten by that handler.
 export default function AuthPanel({ panelStyle }) {
@@ -46,7 +50,17 @@ export default function AuthPanel({ panelStyle }) {
           </button>
         )}
 
-        {ready && user && (
+        {ready && user && DEV_ONLY_LOGOUT && (
+          <button
+            type="button"
+            onClick={logout}
+            className="w-full rounded bg-slate-100/10 px-2 py-1 hover:bg-slate-100/20"
+          >
+            Log out
+          </button>
+        )}
+
+        {ready && user && !DEV_ONLY_LOGOUT && (
           <>
             <div className="flex items-center gap-2">
               {user.pfp && (
@@ -93,7 +107,9 @@ export default function AuthPanel({ panelStyle }) {
         )}
       </div>
 
-      {ready && user && showFriends && <FriendsPanel panelStyle={panelStyle} />}
+      {ready && user && !DEV_ONLY_LOGOUT && showFriends && (
+        <FriendsPanel panelStyle={panelStyle} />
+      )}
     </div>
   )
 }

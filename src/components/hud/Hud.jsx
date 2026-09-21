@@ -994,8 +994,9 @@ export default function Hud() {
       <LeftCenterControls />
 
       {/* Top-left identity chip: "Guest" + Bloxity default picture until login,
-         the real avatar + name after. Always visible, even with the SDK
-         blocked. Event-driven, never per frame (Tech.md §5.4). */}
+         the real avatar + name after. Dev-only diagnostic (VITE_ENVIRONMENT=
+         Development) — renders null otherwise. Event-driven, never per frame
+         (Tech.md §5.4). */}
       <IdentityChip panelStyle={panelStyle} />
 
       <AuthPanel panelStyle={panelStyle} />

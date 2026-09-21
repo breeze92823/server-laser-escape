@@ -3,6 +3,10 @@ import { authState } from '../../systems/bloxity.js'
 import { GUEST_PFP_URL } from '../../data/bloxity.js'
 import { useAuth } from './hooks.js'
 
+// Dev-only diagnostic — production/staging players don't need to see whose
+// identity the client resolved, just the interactive AuthPanel.
+const DEV_ONLY = import.meta.env.VITE_ENVIRONMENT === 'Development'
+
 // Top-left identity chip. Unlike AuthPanel (top-right), this always renders —
 // a guest with the SDK blocked still sees who they are — and it has no
 // interactive controls, so it stays pointer-events-none and the touch look-zone
@@ -11,6 +15,8 @@ import { useAuth } from './hooks.js'
 export default function IdentityChip({ panelStyle }) {
   useAuth()
   const [imgFailed, setImgFailed] = useState(false)
+
+  if (!DEV_ONLY) return null
 
   const { user, guest } = authState
   const isGuest = !user
