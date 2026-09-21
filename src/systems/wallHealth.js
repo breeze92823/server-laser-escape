@@ -19,6 +19,7 @@ import { laser } from './laser.js'
 import { useGameStore } from '../store/useGameStore.js'
 import { removeAabb } from './collision.js'
 import { spawnBurst as spawnDebris, reset as resetDebris } from './wallDebris.js'
+import { playWallBreak } from './sfx.js'
 import { WALL_STRENGTH, DAMAGE_CONSTANT } from '../data/wallHealth.js'
 
 const health = {}
@@ -106,6 +107,7 @@ export function strikeWall() {
   if (next === 0) {
     removeAabb(id)
     spawnDebris(id)
+    playWallBreak()
     useGameStore.getState().destroyWall(id)
   }
 }
