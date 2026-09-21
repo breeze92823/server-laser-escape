@@ -378,6 +378,11 @@ function sendIdentityNow() {
   // A freshly-signed-in id gets its saved doc hydrated again, same as a
   // brand-new join — see hydratedFromServer's own comment.
   if (userId && userId !== prevUserId) hydratedFromServer = false
+  // Logging out to a guest: nothing durable backs a guest session (see
+  // resetProgress()'s own comment), so the old account's stats shouldn't
+  // carry over and read as free progress on the anonymous session that
+  // follows them.
+  if (prevUserId && !userId) useGameStore.getState().resetProgress()
 
   lastIdentity = { userId, username }
   try {
